@@ -1,0 +1,7 @@
+node_modules/
+clips/
+out/
+*.log
+.work/
+.DS_Store
+assets/_*.html

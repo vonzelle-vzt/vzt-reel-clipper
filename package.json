@@ -1,0 +1,49 @@
+{
+  "name": "vzt-reel-clipper",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local AI agent that turns 1 longform video into N captioned vertical shorts — speech mode (transcript + claude) and sports mode (audio-energy play detection). No paid API.",
+  "keywords": [
+    "video",
+    "shorts",
+    "reels",
+    "tiktok",
+    "ffmpeg",
+    "captions",
+    "subtitles",
+    "whisper",
+    "clip",
+    "highlights",
+    "sports",
+    "game-film",
+    "ai",
+    "cli"
+  ],
+  "author": "VZT (vonzelle)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vonzelle-vzt/vzt-reel-clipper.git"
+  },
+  "bin": {
+    "vzt-reel-clipper": "bin/vzt-reel-clipper.js",
+    "reelclip": "bin/vzt-reel-clipper.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/smoke.test.mjs",
+    "clip": "node bin/vzt-reel-clipper.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "kleur": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
