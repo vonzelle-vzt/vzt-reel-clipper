@@ -26,6 +26,7 @@ Both reframe to **9:16 (1080×1920)**, burn captions with ffmpeg, write a `clips
 
 - [Requirements](#requirements)
 - [Install](#install)
+- [How to use](#how-to-use) · [full step-by-step guide ›](docs/HOW-TO-USE.md)
 - [Usage](#usage)
 - [Sports mode](#sports-mode)
 - [YouTube input](#youtube-input)
@@ -55,6 +56,49 @@ npm install
 npm link        # optional — puts `vzt-reel-clipper` (and `reelclip`) on PATH
 npm test        # optional — self-contained smoke tests
 ```
+
+## How to use
+
+> 📖 **New here?** This is the short version — the full hand-holding walkthrough
+> (with troubleshooting) lives in **[docs/HOW-TO-USE.md](docs/HOW-TO-USE.md)**.
+
+**Step 1 — sanity check** (after install):
+
+```bash
+vzt-reel-clipper --version     # 0.1.0
+vzt-reel-clipper --help        # every option
+```
+
+**Step 2 — pick the mode that matches your footage:**
+
+- **`speech`** *(default)* — anything with talking: podcasts, interviews,
+  lessons, talking-head reels. It reads the words and picks the best moments.
+- **`sports`** — game film with little/no speech (raw sideline, hudl, phone from
+  the stands). It finds the action by **loud moments** (crowd, contact, whistles).
+
+**Step 3 — run it:**
+
+```bash
+# Talking video → 5 captioned vertical shorts in ./clips
+vzt-reel-clipper "C:\Users\neilv\Videos\podcast.mp4"
+
+# Game film → big-play shorts + one stitched highlight reel
+vzt-reel-clipper "C:\film\full-game.mp4" --mode sports --reel
+```
+
+It prints the clips it chose, then drops finished `.mp4`s (ready for
+TikTok/Reels/Shorts) plus a `clips.json` manifest into the output folder.
+
+**Tuning, in one line each:**
+
+```bash
+vzt-reel-clipper video.mp4 -n 8 --min 20 --max 45 --font Impact   # speech: more/shorter clips, font
+vzt-reel-clipper game.mp4 --mode sports --sensitivity 0.7         # sports: quiet film → more clips
+vzt-reel-clipper game.mp4 --mode sports --preroll 8 --postroll 5  # sports: widen the play window
+vzt-reel-clipper "https://youtu.be/XXXX" --cookies-from-browser firefox   # from a YouTube link
+```
+
+> Stuck? See the [troubleshooting table](docs/HOW-TO-USE.md#6-troubleshooting).
 
 ## Usage
 
