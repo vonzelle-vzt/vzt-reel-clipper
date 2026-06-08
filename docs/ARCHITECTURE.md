@@ -23,9 +23,10 @@ input ─▶ resolve ─▶ ┤                                            ├�
 2. **select** — two strategies produce the same `{start, end, title, reason}` shape:
    - **speech** (`src/select.js`): build a timestamped transcript
      (`src/transcribe.js` — local WASM Whisper via the `vintel` CLI, or a parsed
-     YouTube VTT with real word timing), pipe it to `claude -p`, and ask for the
-     N most clip-worthy moments. Output is sanitized (clamped, length-bounded,
-     de-overlapped).
+     YouTube VTT with real word timing) and ask an LLM for the N most clip-worthy
+     moments. The LLM call goes through `src/llm.js`, which abstracts two
+     subscription CLIs — `claude -p` and `codex exec` (selected with `--engine`).
+     Output is sanitized (clamped, length-bounded, de-overlapped).
    - **sports** (`src/sports.js`): no transcript. Read ffmpeg `ebur128`
      momentary loudness across the whole video, find peaks (local maxima above
      `median + sensitivity·1.4826·MAD`), suppress neighbors within `minGap`, and
@@ -61,5 +62,5 @@ input ─▶ resolve ─▶ ┤                                            ├�
 
 - Transcription leans on the pure-WASM Whisper backend in
   [`vzt-video-intel`](https://www.npmjs.com/package/vzt-video-intel).
-- Moment selection uses the `claude` CLI subscription (same zero-API-cost pattern
-  as `tele-build-agent`).
+- Moment selection uses the `claude` **or** `codex` CLI subscription (same
+  zero-API-cost pattern as `tele-build-agent`), behind the `src/llm.js` adapter.

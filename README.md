@@ -11,7 +11,7 @@
 
 # vzt-reel-clipper
 
-Local AI agent that turns **1 longform video → N captioned vertical shorts** — the thing those "AI clips agent" reels are selling, except it runs on your own machine with **no paid API**. Transcription is local; moment selection uses the `claude` CLI subscription.
+Local AI agent that turns **1 longform video → N captioned vertical shorts** — the thing those "AI clips agent" reels are selling, except it runs on your own machine with **no paid API**. Transcription is local; moment selection runs through your **`claude` *or* `codex` CLI** subscription (`--engine`, default `claude`).
 
 **Two selection modes:**
 
@@ -41,7 +41,7 @@ Both reframe to **9:16 (1080×1920)**, burn captions with ffmpeg, write a `clips
 |---|---|
 | **ffmpeg / ffprobe** (on PATH) | everything (cut, reframe, captions, audio analysis) |
 | **node ≥ 20** | the CLI |
-| **claude** CLI (logged in) | speech-mode moment selection |
+| **claude** *or* **codex** CLI (logged in) | speech-mode moment selection (`--engine`) |
 | **vintel** (`vzt-video-intel`) CLI | local transcription (first run downloads a ~75 MB Whisper model) |
 | **yt-dlp** + **deno** | only the YouTube input path |
 
@@ -95,8 +95,14 @@ TikTok/Reels/Shorts) plus a `clips.json` manifest into the output folder.
 vzt-reel-clipper video.mp4 -n 8 --min 20 --max 45 --font Impact   # speech: more/shorter clips, font
 vzt-reel-clipper game.mp4 --mode sports --sensitivity 0.7         # sports: quiet film → more clips
 vzt-reel-clipper game.mp4 --mode sports --preroll 8 --postroll 5  # sports: widen the play window
+vzt-reel-clipper video.mp4 --engine codex                        # use Codex (GPT) instead of Claude
 vzt-reel-clipper "https://youtu.be/XXXX" --cookies-from-browser firefox   # from a YouTube link
 ```
+
+**Choosing the brain (`--engine`):** moment selection runs through whichever CLI
+you're logged into — `claude` (default) or `codex`. Both use your existing
+subscription, so neither adds an API bill. Sports mode doesn't call an LLM at
+all, so `--engine` only matters in speech mode.
 
 > Stuck? See the [troubleshooting table](docs/HOW-TO-USE.md#6-troubleshooting).
 
@@ -168,7 +174,8 @@ like, then point the tool at the file.
 | `--preroll / --postroll <sec>` | 7 / 4 | seconds around each peak *(sports mode)* |
 | `--sensitivity <n>` | 1.0 | peak threshold *(sports mode; lower = more clips)* |
 | `-l, --language <iso>` | auto | transcription language hint |
-| `--model <name>` | `sonnet` | claude model for selection |
+| `-e, --engine <name>` | `claude` | LLM for moment selection: `claude` or `codex` |
+| `--model <name>` | engine default | model override (claude → `sonnet`; codex → its config default) |
 | `--font <name>` | `Arial` | caption font |
 | `--no-captions` | off | skip burned-in captions |
 | `--cookies <file>` | — | cookies.txt for YouTube |

@@ -10,8 +10,10 @@ Initial release.
 
 ### Added
 - **Speech mode** (default): local WASM Whisper transcription (via the `vintel`
-  CLI) or YouTube auto-sub word timing → `claude` CLI picks the best moments →
-  9:16 render with **animated word-by-word captions**.
+  CLI) or YouTube auto-sub word timing → an LLM picks the best moments → 9:16
+  render with **animated word-by-word captions**.
+- **Pluggable selection engine** (`--engine claude|codex`): moment selection runs
+  through either the `claude` or `codex` CLI subscription via `src/llm.js`. No API key.
 - **Sports mode** (`--mode sports`): no-speech selection for game film. Detects
   plays via **audio-energy peaks** (ffmpeg `ebur128` momentary loudness), with a
   median+MAD threshold, non-maximum suppression, and weak-peak dropping so quiet

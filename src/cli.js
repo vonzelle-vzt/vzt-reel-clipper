@@ -32,7 +32,8 @@ export async function run(argv) {
     .option("--min <sec>", "minimum clip length (speech mode)", (v) => parseFloat(v), 18)
     .option("--max <sec>", "maximum clip length (speech mode)", (v) => parseFloat(v), 60)
     .option("-l, --language <iso>", "transcription language hint")
-    .option("--model <name>", "claude model for moment selection", "sonnet")
+    .option("-e, --engine <name>", "LLM for moment selection: claude | codex", "claude")
+    .option("--model <name>", "model override for the chosen engine (default: claude=sonnet, codex=its config default)")
     .option("--reel", "also stitch the clips into one highlight reel")
     .option("--preroll <sec>", "sports: seconds before each peak", (v) => parseFloat(v), 7)
     .option("--postroll <sec>", "sports: seconds after each peak", (v) => parseFloat(v), 4)
@@ -48,6 +49,9 @@ export async function run(argv) {
 
 async function main(input, opts) {
   const t0 = Date.now();
+  if (!["claude", "codex"].includes(opts.engine)) {
+    throw new Error(`--engine must be "claude" or "codex" (got "${opts.engine}")`);
+  }
   const outDir = resolvePath(opts.out);
   const workDir = join(outDir, ".work");
   mkdirSync(workDir, { recursive: true });
@@ -98,6 +102,7 @@ async function main(input, opts) {
       count: opts.count,
       minLen: opts.min,
       maxLen: opts.max,
+      engine: opts.engine,
       model: opts.model,
     });
     log.ok(`${clips.length} clips chosen`);

@@ -12,7 +12,7 @@ You need these installed (most are already on the build machine):
 |---|---|---|
 | **ffmpeg** | `ffmpeg -version` | always |
 | **node ≥ 20** | `node --version` | always |
-| **claude** CLI (logged in) | `claude --version` | speech mode |
+| **claude** *or* **codex** CLI (logged in) | `claude --version` / `codex --version` | speech mode (pick one with `--engine`) |
 | **vintel** | `vintel --help` | speech mode (local transcription) |
 | **yt-dlp** + **deno** | `yt-dlp --version` | only YouTube input |
 
@@ -82,7 +82,17 @@ vzt-reel-clipper podcast.mp4 --font "Impact" -o my-clips/
 
 # no captions, just the cut + vertical reframe
 vzt-reel-clipper podcast.mp4 --no-captions
+
+# use Codex (GPT) to pick the moments instead of Claude
+vzt-reel-clipper podcast.mp4 --engine codex
 ```
+
+**Claude or Codex?** The moment-picking step runs through whichever CLI you're
+logged into. `--engine claude` (default) uses your Claude subscription;
+`--engine codex` uses your Codex/ChatGPT login. Both are free of per-call API
+charges. Override the model with `--model` if you want a specific one
+(e.g. `--engine claude --model opus`). Sports mode never calls an LLM, so the
+engine choice only applies here in speech mode.
 
 ---
 
@@ -176,6 +186,9 @@ vzt-reel-clipper video.mp4
 
 # Talking video → 8 shorts, 20–45s, custom font
 vzt-reel-clipper video.mp4 -n 8 --min 20 --max 45 --font Impact
+
+# Pick moments with Codex instead of Claude
+vzt-reel-clipper video.mp4 --engine codex
 
 # Game film → big plays + one highlight reel
 vzt-reel-clipper game.mp4 --mode sports --reel

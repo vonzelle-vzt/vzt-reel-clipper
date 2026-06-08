@@ -1,11 +1,12 @@
-import { exec, log } from "./util.js";
+import { log } from "./util.js";
+import { runLLM, engineLabel } from "./llm.js";
 
 /**
- * Ask the local `claude` CLI (subscription, no API cost) to pick the N most
- * clip-worthy moments from a timestamped transcript.
+ * Ask a local LLM CLI (claude or codex — subscription, no API cost) to pick the
+ * N most clip-worthy moments from a timestamped transcript.
  * Returns [{ start, end, title, reason }] in seconds.
  */
-export async function selectClips(segments, { count = 5, minLen = 18, maxLen = 60, model = "sonnet" } = {}) {
+export async function selectClips(segments, { count = 5, minLen = 18, maxLen = 60, engine = "claude", model = null } = {}) {
   if (!segments.length) throw new Error("transcript is empty — nothing to select");
 
   // Compact timestamped transcript for the prompt.
@@ -28,21 +29,17 @@ Return ONLY a JSON array, no prose, no markdown fences. Each item:
 TRANSCRIPT:
 ${tx}`;
 
-  log.info(`asking claude (${model}) to pick ${count} clips…`);
-  const { stdout, code, stderr } = await exec("claude", ["-p", "--model", model], {
-    stdin: prompt,
-    shell: process.platform === "win32",
-  });
-  if (code !== 0) throw new Error(`claude CLI failed (exit ${code}).\n${stderr.slice(-1000)}`);
+  log.info(`asking ${engineLabel(engine, model)} to pick ${count} clips…`);
+  const out = await runLLM(prompt, { engine, model });
 
-  const a = stdout.indexOf("[");
-  const b = stdout.lastIndexOf("]");
-  if (a < 0 || b < 0) throw new Error(`no JSON array in claude output:\n${stdout.slice(0, 500)}`);
+  const a = out.indexOf("[");
+  const b = out.lastIndexOf("]");
+  if (a < 0 || b < 0) throw new Error(`no JSON array in ${engine} output:\n${out.slice(0, 500)}`);
   let clips;
   try {
-    clips = JSON.parse(stdout.slice(a, b + 1));
+    clips = JSON.parse(out.slice(a, b + 1));
   } catch (e) {
-    throw new Error(`could not parse claude JSON: ${e.message}\n${stdout.slice(a, b + 1).slice(0, 500)}`);
+    throw new Error(`could not parse ${engine} JSON: ${e.message}\n${out.slice(a, b + 1).slice(0, 500)}`);
   }
 
   // Sanitize: clamp to bounds, enforce length, drop overlaps.
@@ -58,6 +55,6 @@ ${tx}`;
     cleaned.push({ start, end, title: String(c.title || "clip").trim(), reason: String(c.reason || "").trim() });
     if (cleaned.length >= count) break;
   }
-  if (!cleaned.length) throw new Error("claude returned no usable clips");
+  if (!cleaned.length) throw new Error(`${engine} returned no usable clips`);
   return cleaned;
 }
