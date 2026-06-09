@@ -9,15 +9,39 @@ export const log = {
 };
 
 /**
+ * Quote a single argument for safe use when `spawn` runs through a shell.
+ * Node does NOT auto-quote args in shell mode, so a path containing spaces
+ * (e.g. "…/2026 Matrix Bootcamp/Day 1 - EMAS.mp4") gets split by the shell.
+ * Non-shell calls pass args as an array and never need this.
+ */
+export function quoteArg(arg) {
+  const s = String(arg);
+  if (s === "") return '""';
+  if (process.platform === "win32") {
+    // cmd.exe: only quote when needed; escape embedded double quotes as "".
+    if (!/[\s"&|<>^()%!,;=]/.test(s)) return s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  // POSIX sh: single-quote and escape embedded single quotes.
+  if (!/[^A-Za-z0-9_@%+=:,./-]/.test(s)) return s;
+  return "'" + s.replace(/'/g, `'\\''`) + "'";
+}
+
+/**
  * Run a command, streaming nothing, returning {code, stdout, stderr}.
  * Never rejects on non-zero exit unless opts.check is true.
  */
 export function exec(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
+    const useShell = opts.shell || false;
+    // In shell mode Node joins args with spaces and runs them through the
+    // shell without quoting, so quote each arg ourselves. Array-mode (no
+    // shell) passes args verbatim and must be left untouched.
+    const spawnArgs = useShell ? args.map(quoteArg) : args;
+    const child = spawn(cmd, spawnArgs, {
       cwd: opts.cwd,
       env: { ...process.env, ...(opts.env || {}) },
-      shell: opts.shell || false,
+      shell: useShell,
       windowsHide: true,
     });
     let stdout = "";

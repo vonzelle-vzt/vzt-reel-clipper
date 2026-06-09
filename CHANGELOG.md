@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Paths with spaces** no longer break local transcription, LLM selection, or
+  YouTube download. `exec()` runs `vintel`/`claude`/`codex`/`yt-dlp` through a
+  shell on Windows, where Node does not quote args — so an input like
+  `…/2026 Matrix Bootcamp/Day 1 - EMAS.mp4` was split at the first space and the
+  tool only saw `…/2026.`. Args are now quoted via a new `quoteArg()` helper
+  whenever a command runs in shell mode. (ffmpeg/ffprobe use array args and were
+  unaffected.)
+
 ## [0.1.0] — 2026-06-07
 
 Initial release.
