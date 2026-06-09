@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **`--fit <mode>`** framing control for fitting the (usually 16:9) source into
+  the 1080x1920 canvas:
+  - `cover` (default) — scale to fill, crop the overflow (best for centered
+    talking heads).
+  - `contain` — scale the whole frame to fit and pad with black; nothing is cut
+    off. Ideal for slides / screen-shares where edge text or charts matter.
+  - `blur` — fit the frame sharp and fill the bars with a blurred zoom of itself.
+
 ### Fixed
 - **Paths with spaces** no longer break local transcription, LLM selection, or
   YouTube download. `exec()` runs `vintel`/`claude`/`codex`/`yt-dlp` through a

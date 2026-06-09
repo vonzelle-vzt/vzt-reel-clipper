@@ -41,6 +41,7 @@ export async function run(argv) {
     .option("--cookies <file>", "cookies.txt for YouTube auth")
     .option("--cookies-from-browser <name>", "browser to read YouTube cookies from (firefox|edge|chrome)")
     .option("--font <name>", "caption font", "Arial")
+    .option("--fit <mode>", "framing: cover (crop to fill) | contain (pad, nothing cut) | blur (fit + blurred fill)", "cover")
     .option("--no-captions", "skip burned-in captions (just cut + reframe)")
     .action(main);
 
@@ -51,6 +52,9 @@ async function main(input, opts) {
   const t0 = Date.now();
   if (!["claude", "codex"].includes(opts.engine)) {
     throw new Error(`--engine must be "claude" or "codex" (got "${opts.engine}")`);
+  }
+  if (!["cover", "contain", "blur"].includes(opts.fit)) {
+    throw new Error(`--fit must be "cover", "contain", or "blur" (got "${opts.fit}")`);
   }
   const outDir = resolvePath(opts.out);
   const workDir = join(outDir, ".work");
@@ -124,7 +128,7 @@ async function main(input, opts) {
       opts.captions ? words : [],
       outDir,
       name,
-      { caption: { font: opts.font }, staticTitle: sports && opts.captions ? c.title : null },
+      { caption: { font: opts.font }, fit: opts.fit, staticTitle: sports && opts.captions ? c.title : null },
     );
     results.push({ ...c, file });
     log.ok(`#${i + 1} → ${file}`);

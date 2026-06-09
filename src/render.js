@@ -23,25 +23,49 @@ export async function renderClip(source, clip, words, outDir, outName, opts = {}
       end: Math.min(dur, w.end - clip.start),
     }));
 
+  // Framing: how the (usually 16:9) source is fit into the 1080x1920 canvas.
+  //   cover   — scale to fill, crop the overflow (good for centered talking heads)
+  //   contain — scale the whole frame to fit, pad with black (nothing cut off;
+  //             ideal for slides / screen-shares where edge content matters)
+  //   blur    — fit the frame sharp, fill the bars with a blurred zoom of itself
+  let baseVf;
+  if (opts.fit === "contain") {
+    baseVf = [
+      "scale=1080:1920:force_original_aspect_ratio=decrease",
+      "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
+      "setsar=1",
+    ].join(",");
+  } else if (opts.fit === "blur") {
+    baseVf = [
+      "split=2[bg][fg]",
+      "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=20[bgb]",
+      "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgs]",
+      "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1",
+    ].join(";");
+  } else {
+    // cover (default)
+    baseVf = [
+      "scale=1080:1920:force_original_aspect_ratio=increase",
+      "crop=1080:1920",
+      "setsar=1",
+    ].join(",");
+  }
+
   // Captions: word-by-word karaoke (speech mode) OR a static title banner
   // (sports / no-speech mode). Empty when both are off.
-  const filters = [
-    "scale=1080:1920:force_original_aspect_ratio=increase",
-    "crop=1080:1920",
-    "setsar=1",
-  ];
   let assContent = null;
   if (local.length) assContent = buildAss(local, opts.caption || {});
   else if (opts.staticTitle) assContent = buildTitleAss(opts.staticTitle, dur, opts.caption || {});
 
+  let vf = baseVf;
   if (assContent) {
     const assName = `${outName}.ass`;
     writeFileSync(join(outDir, assName), assContent, "utf8");
     // Running with cwd=outDir lets us reference the .ass by bare name and dodge
     // Windows drive-letter/backslash escaping inside the ffmpeg filtergraph.
-    filters.push(`ass=${assName}`);
+    // The ass filter chains onto the final video pad of baseVf.
+    vf += `,ass=${assName}`;
   }
-  const vf = filters.join(",");
 
   const out = `${outName}.mp4`;
   const args = [
