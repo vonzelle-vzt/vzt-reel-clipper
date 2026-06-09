@@ -90,8 +90,17 @@ async function main(input, opts) {
       transcript = transcriptFromVttFile(vttPath);
       log.ok(`word-level captions from YouTube (${transcript.words.length} words, ${transcript.segments.length} segments)`);
     } else {
-      transcript = await transcribeLocal(videoPath, { language: opts.language });
-      log.ok(`${transcript.segments.length} segments (${transcript.words.length} words, timing approximated)`);
+      // Cache the (slow, ~15 min) WASM-whisper transcript in .work so re-runs —
+      // e.g. changing --count or --fit — skip straight to selection/render.
+      const cachePath = join(workDir, "transcript.json");
+      if (existsSync(cachePath)) {
+        transcript = JSON.parse(readFileSync(cachePath, "utf8"));
+        log.ok(`${transcript.segments.length} segments (cached transcript — skipped transcription)`);
+      } else {
+        transcript = await transcribeLocal(videoPath, { language: opts.language });
+        writeFileSync(cachePath, JSON.stringify(transcript), "utf8");
+        log.ok(`${transcript.segments.length} segments (${transcript.words.length} words, timing approximated)`);
+      }
     }
     if (!transcript.segments.length) {
       throw new Error(

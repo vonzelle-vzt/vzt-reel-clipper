@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Transcript caching.** The slow (~15 min) local WASM-whisper transcript is now
+  written to `<out>/.work/transcript.json` and reused on subsequent runs, so
+  iterating on the *same* source — changing `--count`, trying `--fit blur`,
+  re-rendering — skips straight to selection/render instead of re-transcribing.
+  Delete the cache file (or the `.work` dir) to force a fresh transcription.
 - **`--fit <mode>`** framing control for fitting the (usually 16:9) source into
   the 1080x1920 canvas:
   - `cover` (default) — scale to fill, crop the overflow (best for centered
