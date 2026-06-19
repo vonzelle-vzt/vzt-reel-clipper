@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { exec, log } from "./util.js";
+import { exec, log, FFMPEG } from "./util.js";
 import { buildAss, buildTitleAss } from "./ass.js";
 
 /**
@@ -105,7 +105,7 @@ export async function renderClip(source, clip, words, outDir, outName, opts = {}
   ];
 
   log.info(`rendering ${out}  (${dur.toFixed(1)}s, ${local.length} caption words)`);
-  await exec("ffmpeg", args, { cwd: outDir, check: true });
+  await exec(FFMPEG, args, { cwd: outDir, check: true });
   return join(outDir, out);
 }
 
@@ -120,7 +120,7 @@ export async function stitchReel(files, outDir, outName = "reel") {
   writeFileSync(join(outDir, listName), list, "utf8");
   const out = `${outName}.mp4`;
   await exec(
-    "ffmpeg",
+    FFMPEG,
     ["-y", "-f", "concat", "-safe", "0", "-i", listName, "-c", "copy", "-movflags", "+faststart", out],
     { cwd: outDir, check: true },
   );

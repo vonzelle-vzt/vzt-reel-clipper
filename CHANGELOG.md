@@ -42,6 +42,14 @@ All notable changes to this project are documented here. The format is based on
   - *Not yet:* true active-speaker (lip-motion) switching — follows
     size/position/faces, not who is currently talking.
 
+### Changed
+- **Bundled ffmpeg via `ffmpeg-static`.** ffmpeg is now resolved from the bundled
+  static build (which ships **libass**, so caption burning works even where the
+  system ffmpeg was compiled without it) rather than requiring it on `PATH`.
+  ffprobe still resolves from `PATH`. Both honour `VZT_FFMPEG` / `VZT_FFPROBE`
+  overrides. This makes the full `npm test` suite (caption renders included) run
+  on machines whose system ffmpeg lacks libass.
+
 ### Fixed
 - **Paths with spaces** no longer break local transcription, LLM selection, or
   YouTube download. `exec()` runs `vintel`/`claude`/`codex`/`yt-dlp` through a

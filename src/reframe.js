@@ -2,7 +2,7 @@ import { writeFileSync, readFileSync, existsSync, statSync, mkdtempSync, rmSync 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { exec, log } from "./util.js";
+import { exec, log, FFMPEG, FFPROBE } from "./util.js";
 import { loudnessCurve } from "./sports.js";
 import { createOnnxDetector } from "./detect/onnx.js";
 import { createVintelDetector } from "./detect/vintel.js";
@@ -52,7 +52,7 @@ function median(arr) {
 
 async function sourceDims(source) {
   const { stdout } = await exec(
-    "ffprobe",
+    FFPROBE,
     ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", source],
     { check: true },
   );
@@ -90,7 +90,7 @@ async function detectSceneCuts(source, clip, threshold = 0.3) {
   const fname = "sc.txt";
   try {
     await exec(
-      "ffmpeg",
+      FFMPEG,
       ["-y", "-ss", clip.start.toFixed(3), "-i", source, "-t", dur.toFixed(3),
         "-vf", `select='gt(scene\\,${threshold})',metadata=print:file=${fname}`, "-an", "-f", "null", "-"],
       { cwd: dir, check: true },

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exec } from "../util.js";
+import { exec, FFMPEG } from "../util.js";
 
 /**
  * Local subject detector — YOLOv8 (or compatible single-output ONNX export) run
@@ -98,7 +98,7 @@ async function extractRawFrames(source, clip, fps, dir) {
     `pad=${NET}:${NET}:(ow-iw)/2:(oh-ih)/2:color=0x727272,` + // 114,114,114 (YOLO pad)
     `format=rgb24`;
   await exec(
-    "ffmpeg",
+    FFMPEG,
     ["-y", "-ss", clip.start.toFixed(3), "-i", source, "-t", dur.toFixed(3), "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", "out.rgb"],
     { cwd: dir, check: true },
   );

@@ -14,7 +14,7 @@ import { renderClip, stitchReel } from "../src/render.js";
 import { planReframe, smoothCenters } from "../src/reframe.js";
 import { letterbox, decodeYolo, nms } from "../src/detect/onnx.js";
 import { mapEntitiesToFrames } from "../src/detect/vintel.js";
-import { exec, ffprobeDuration } from "../src/util.js";
+import { exec, ffprobeDuration, FFMPEG, FFPROBE } from "../src/util.js";
 
 let passed = 0;
 const ok = (name) => { console.log(`  \x1b[32m✓\x1b[0m ${name}`); passed++; };
@@ -199,7 +199,7 @@ process.on("exit", () => rmSync(work, { recursive: true, force: true }));
 // ------------------------------------------------------- integration: ffmpeg
 const src = join(work, "game.mp4");
 console.log("  … generating synthetic fixture (ffmpeg)");
-await exec("ffmpeg", [
+await exec(FFMPEG, [
   "-y",
   "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=60",
   "-f", "lavfi", "-i", "sine=frequency=200:duration=60",
@@ -218,7 +218,7 @@ await exec("ffmpeg", [
 
   const out1 = await renderClip(src, clips[0], [], work, "01-play", { staticTitle: clips[0].title });
   assert.ok(existsSync(out1), "clip rendered");
-  const w = await exec("ffprobe", ["-v", "error", "-select_streams", "v:0",
+  const w = await exec(FFPROBE, ["-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height", "-of", "csv=p=0", out1], { check: true });
   assert.equal(w.stdout.trim(), "1080,1920", "output is 1080x1920 vertical");
   ok("renderClip: 9:16 vertical output with title banner");
@@ -269,14 +269,14 @@ await exec("ffmpeg", [
 
   const smartOut = await renderClip(src, clip, [], work, "03-smart", { fit: "smart", reframe: plan });
   assert.ok(existsSync(smartOut), "smart clip rendered");
-  const dim = await exec("ffprobe", ["-v", "error", "-select_streams", "v:0",
+  const dim = await exec(FFPROBE, ["-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height", "-of", "csv=p=0", smartOut], { check: true });
   assert.equal(dim.stdout.trim(), "1080,1920", "smart clip is 1080x1920 vertical");
   ok("renderClip(fit=smart): dynamic-crop render is valid 9:16");
 
   // Fallback contract: fit=smart with no usable path must degrade to cover, not crash.
   const fb = await renderClip(src, clip, [], work, "04-fallback", { fit: "smart", reframe: null });
-  const fbDim = await exec("ffprobe", ["-v", "error", "-select_streams", "v:0",
+  const fbDim = await exec(FFPROBE, ["-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height", "-of", "csv=p=0", fb], { check: true });
   assert.equal(fbDim.stdout.trim(), "1080,1920", "fallback still produces 1080x1920");
   ok("renderClip(fit=smart, no path): falls back to center cover");

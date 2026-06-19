@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
 import kleur from "kleur";
+import ffmpegStatic from "ffmpeg-static";
+
+// Resolve the ffmpeg/ffprobe binaries. ffmpeg prefers the bundled static build
+// (it ships libass, so caption burning works even where the system ffmpeg was
+// built without it); ffprobe uses PATH (it needs no libass, and the
+// ffprobe-static arm64 build is mis-shipped as x86_64). Both honour an env
+// override (VZT_FFMPEG / VZT_FFPROBE).
+export const FFMPEG = process.env.VZT_FFMPEG || ffmpegStatic || "ffmpeg";
+export const FFPROBE = process.env.VZT_FFPROBE || "ffprobe";
 
 export const log = {
   step: (m) => console.log(kleur.bold().cyan("▸ ") + kleur.bold(m)),
@@ -71,7 +80,7 @@ export function exec(cmd, args, opts = {}) {
 
 export async function ffprobeDuration(path) {
   const { stdout } = await exec(
-    "ffprobe",
+    FFPROBE,
     ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path],
     { check: true },
   );

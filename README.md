@@ -39,13 +39,14 @@ Both reframe to **9:16 (1080×1920)** — center-crop by default, or **subject-t
 
 | tool | needed for |
 |---|---|
-| **ffmpeg / ffprobe** (on PATH) | everything (cut, reframe, captions, audio analysis) |
+| **ffmpeg** | bundled via `ffmpeg-static` (ships libass, so captions burn anywhere) — no install needed; override with `VZT_FFMPEG` |
+| **ffprobe** (on PATH) | media duration/size probing — override with `VZT_FFPROBE` |
 | **node ≥ 20** | the CLI |
 | **claude** *or* **codex** CLI (logged in) | speech-mode moment selection (`--engine`) |
 | **vintel** (`vzt-video-intel`) CLI | local transcription (first run downloads a ~75 MB Whisper model) |
 | **yt-dlp** + **deno** | only the YouTube input path |
 
-Sports mode needs only ffmpeg + node.
+Sports mode needs only node + ffprobe (ffmpeg is bundled).
 
 ## Install
 

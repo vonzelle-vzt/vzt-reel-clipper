@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exec, log } from "./util.js";
+import { exec, log, FFMPEG } from "./util.js";
 import { ffprobeDuration } from "./util.js";
 
 /**
@@ -50,7 +50,7 @@ export async function loudnessCurve(source, { start = 0, end } = {}) {
   if (end != null && end > start) args.push("-t", String(end - start));
   args.push("-af", `ebur128=metadata=1,ametadata=mode=print:file=${fname}`, "-f", "null", "-");
   try {
-    await exec("ffmpeg", args, { cwd: dir, check: true });
+    await exec(FFMPEG, args, { cwd: dir, check: true });
     return parseR128(readFileSync(join(dir, fname), "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -68,7 +68,7 @@ export async function detectAudioPeaks(source, { minGap = 18, sensitivity = 1.0 
   const dir = mkdtempSync(join(tmpdir(), "clipit-r128-"));
   const fname = "r128.txt";
   await exec(
-    "ffmpeg",
+    FFMPEG,
     ["-i", source, "-af", `ebur128=metadata=1,ametadata=mode=print:file=${fname}`, "-f", "null", "-"],
     { cwd: dir, check: true },
   );
