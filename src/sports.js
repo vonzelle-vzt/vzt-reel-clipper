@@ -14,7 +14,7 @@ import { ffprobeDuration } from "./util.js";
  */
 
 // Parse ametadata `print` output: alternating `pts_time:` and `lavfi.r128.M=` lines.
-function parseR128(text) {
+export function parseR128(text) {
   const series = [];
   let t = null;
   for (const line of text.split(/\r?\n/)) {
@@ -34,6 +34,27 @@ function median(arr) {
   const s = [...arr].sort((a, b) => a - b);
   const n = s.length;
   return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+/**
+ * Momentary-loudness curve for a (sub)range of a video, times rebased to the
+ * range start. Shared with smart reframe's audio-aware camera hold so it can
+ * tell speech from silence. Returns [{t, M}] (seconds, LUFS); throws if there's
+ * no readable audio.
+ */
+export async function loudnessCurve(source, { start = 0, end } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "clipit-r128c-"));
+  const fname = "r128.txt";
+  // -ss before -i rebases output timestamps to ~0, so pts_time is range-relative.
+  const args = ["-ss", String(start), "-i", source];
+  if (end != null && end > start) args.push("-t", String(end - start));
+  args.push("-af", `ebur128=metadata=1,ametadata=mode=print:file=${fname}`, "-f", "null", "-");
+  try {
+    await exec("ffmpeg", args, { cwd: dir, check: true });
+    return parseR128(readFileSync(join(dir, fname), "utf8"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**

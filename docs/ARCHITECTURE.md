@@ -36,7 +36,14 @@ input ─▶ resolve ─▶ ┤                                            ├�
 
 3. **render** (`src/render.js`)
    - `scale=1080:1920:force_original_aspect_ratio=increase, crop=1080:1920` fills
-     a vertical frame from any source aspect.
+     a vertical frame from any source aspect (`--fit cover`, the default; plus
+     `contain` and `blur` variants).
+   - **`--fit smart`** (subject-tracking pan & scan): `src/reframe.js` plans a
+     camera path and render drives the `crop` filter's `x` over time via a
+     `sendcmd` script — `sendcmd=f=<clip>.cmd, crop=cropW:cropH:x0:0, scale=…` —
+     all in the single render pass. The crop window is full source height,
+     9:16-wide, and slides to follow the subject. Falls back to `cover` whenever
+     a path can't be planned, so smart is never worse than the default.
    - Captions are burned via the libass `ass` filter:
      - speech → animated word-by-word karaoke (`buildAss`, `src/ass.js`)
      - sports → a static top title banner (`buildTitleAss`)
@@ -57,6 +64,28 @@ input ─▶ resolve ─▶ ┤                                            ├�
   and parse `pts_time` + `lavfi.r128.M`.
 - **Local transcription is segment-level**, so speech-mode word timings are
   interpolated within each segment. YouTube auto-subs carry true per-word timing.
+- **Smart reframe is planning, not pixels** (`src/reframe.js`): it samples by
+  *time only* and each detector backend fetches its own pixels — `onnx`
+  (`src/detect/onnx.js`) pulls raw letterboxed RGB straight from ffmpeg (no
+  image-decode lib; only `onnxruntime-node` + a YOLOv8 `.onnx`), `vintel`
+  (`src/detect/vintel.js`) calls the cloud per time-range, `mock` needs nothing.
+  Detectors are lazy and fail soft → the whole feature degrades to center
+  `cover`. Tracking and framing run **per scene segment** (cuts via
+  `select=gt(scene,…)`):
+  - **Union framing** (`planTargets`): follows the bounding box of the *salient*
+    subjects (dominant track + comparably-sized tracks), so two people are
+    framed between them.
+  - **Auto-letterbox**: if that union exceeds the 9:16 crop window for most of
+    the clip, `planReframe` returns a `recommendFit` (`blur`/`contain`) instead
+    of a pan path and the CLI re-renders the whole clip with that fit — no
+    one gets cropped out, and it stays a single pass.
+  - **Cut snap** (`buildKeyframes`): keyframes are densified *within* each
+    segment, so the `crop x` hard-steps at a cut rather than smearing across it.
+  - **Audio hold** (`smoothCenters` + `loudnessCurve` from `src/sports.js`):
+    a per-frame speech/silence gate from ebur128 damps the follow during pauses
+    so the camera holds still instead of drifting.
+  - A deadzone + critically-damped follow + max-velocity clamp keep the pan
+    operator-smooth. Plans are cached in `.work/reframe-<hash>.json`.
 
 ## Reuses the VZT stack
 

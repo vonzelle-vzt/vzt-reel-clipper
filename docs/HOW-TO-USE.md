@@ -96,6 +96,73 @@ engine choice only applies here in speech mode.
 
 ---
 
+## Framing (`--fit`)
+
+Every clip is fit into a vertical **9:16 (1080×1920)** frame. How the (usually
+wide) source fills that frame is the `--fit` option:
+
+| `--fit` | what it does | best for |
+|---|---|---|
+| `cover` *(default)* | scale to fill, **center-crop** the overflow | centered talking heads |
+| `contain` | scale the whole frame in, pad with black bars | slides / screen-shares (nothing cut off) |
+| `blur` | sharp frame centered, bars filled with a blurred zoom | when black bars look cheap |
+| `smart` | **subject-tracking pan & scan** — slides the crop to follow the person | footage where the speaker/action moves around the frame |
+
+```bash
+# follow the subject instead of a fixed center crop
+vzt-reel-clipper podcast.mp4 --fit smart
+```
+
+### Smart reframe setup
+
+`smart` needs a **detector backend** to find the subject. Pick one:
+
+- **`onnx`** *(default — local, free, no cloud)* — runs a YOLOv8 model on your
+  machine via `onnxruntime-node`. One-time setup:
+
+  ```bash
+  npm i onnxruntime-node                       # native runtime
+  # then point smart mode at any YOLOv8 .onnx export, e.g.:
+  vzt-reel-clipper podcast.mp4 --fit smart --reframe-model ./yolov8n.onnx
+  # or set it once: export VZT_REFRAME_MODEL=/path/to/yolov8n.onnx
+  ```
+
+  (Export `yolov8n.onnx` with Ultralytics: `yolo export model=yolov8n.pt format=onnx`.)
+
+- **`vintel`** *(cloud, tracking-aware, billed)* — reuses the `vintel entities`
+  command (Meta SAM2 on Replicate). Needs a Replicate token configured in
+  vintel. Higher-quality tracking, but not local/free:
+
+  ```bash
+  vzt-reel-clipper podcast.mp4 --fit smart --reframe-backend vintel
+  ```
+
+**If no backend is available, smart mode never errors — it logs a notice and
+falls back to center `cover`.** So `--fit smart` is always safe to try.
+
+Smart mode also handles these automatically:
+
+- **Frames between people.** With two subjects in shot it centers *between*
+  them rather than picking one — as long as they fit the 9:16 window.
+- **Letterboxes wide shots.** If the subjects are too far apart to fit (a wide
+  two-shot), it doesn't crop someone out — it renders the whole clip with the
+  `--reframe-letterbox` fit (default `blur`) instead of panning.
+- **Hard-cuts at edits.** The camera resets on scene cuts instead of sweeping
+  across them.
+- **Holds during silence.** It uses audio loudness to keep the camera still in
+  pauses (so it doesn't drift on noise). Disable with `--no-reframe-audio-hold`.
+
+Tuning knobs (all optional): `--reframe-smooth <0..1>` (higher = steadier
+camera), `--reframe-deadzone <px>` (ignore small jitter), `--reframe-fps <n>`
+(detection sample rate), `--reframe-conf <0..1>` (detection threshold),
+`--reframe-letterbox <blur|contain|cover>` (fit for un-pannable wide clips),
+`--no-reframe-audio-hold` (always pan, even in silence).
+
+To just preview the camera motion without any model, use the synthetic backend:
+`--fit smart --reframe-backend mock`.
+
+---
+
 ## 3B. Sports mode (game film)
 
 Add `--mode sports`. To also get one stitched highlight reel, add `--reel`:

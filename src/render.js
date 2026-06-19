@@ -24,12 +24,32 @@ export async function renderClip(source, clip, words, outDir, outName, opts = {}
     }));
 
   // Framing: how the (usually 16:9) source is fit into the 1080x1920 canvas.
+  //   smart   — track the subject and slide a 9:16 crop window to follow it
+  //             (camera path planned in reframe.js, driven here via sendcmd)
   //   cover   — scale to fill, crop the overflow (good for centered talking heads)
   //   contain — scale the whole frame to fit, pad with black (nothing cut off;
   //             ideal for slides / screen-shares where edge content matters)
   //   blur    — fit the frame sharp, fill the bars with a blurred zoom of itself
+  const useSmart =
+    opts.fit === "smart" && opts.reframe && Array.isArray(opts.reframe.keyframes) && opts.reframe.keyframes.length > 0;
   let baseVf;
-  if (opts.fit === "contain") {
+  if (useSmart) {
+    // Pan & scan: crop a full-height 9:16 window out of the source and move its
+    // left edge (x) over time per the planned camera path. A `sendcmd` script
+    // updates the `crop` filter's `x` at each keyframe; everything stays in the
+    // single render pass. The .cmd file is referenced by bare name under cwd to
+    // dodge ffmpeg filtergraph path escaping.
+    const rf = opts.reframe;
+    const cmdName = `${outName}.cmd`;
+    const lines = rf.keyframes.map((k) => `${k.t.toFixed(3)} crop x ${k.x};`).join("\n");
+    writeFileSync(join(outDir, cmdName), lines + "\n", "utf8");
+    baseVf = [
+      `sendcmd=f=${cmdName}`,
+      `crop=${rf.cropW}:${rf.cropH}:${rf.keyframes[0].x}:0`,
+      "scale=1080:1920",
+      "setsar=1",
+    ].join(",");
+  } else if (opts.fit === "contain") {
     baseVf = [
       "scale=1080:1920:force_original_aspect_ratio=decrease",
       "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",

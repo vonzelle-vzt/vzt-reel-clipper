@@ -217,7 +217,14 @@ Full data flow and the ffmpeg/ASS gotchas are documented in
 
 - Sports mode finds *that* a big moment happened, not *who* made the play — it
   can't yet frame on a specific player or read the scoreboard.
-- Reframing is a center-crop; there's no speaker/subject tracking yet.
+- Reframing defaults to a center-crop (`--fit cover`). For subject-tracking pan
+  & scan use **`--fit smart`** — it follows the subject (framing *between* two
+  people when they fit, letterboxing wide two-shots, hard-cutting at edits, and
+  holding the camera during silence). Smart mode needs a detector backend (local
+  `onnx` YOLOv8 or cloud `vintel`); without one it transparently falls back to
+  center-crop. See [Framing](docs/HOW-TO-USE.md#framing----fit) in the guide.
+  True multi-speaker *active-speaker* switching (who's talking right now) is not
+  yet modelled — it follows size/position/faces, not lip motion.
 - Local caption timing is interpolated (see above).
 
 ## Built on the VZT stack

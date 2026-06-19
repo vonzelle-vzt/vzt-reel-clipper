@@ -9,6 +9,7 @@ import { transcribeLocal, transcriptFromVttFile } from "./transcribe.js";
 import { selectClips } from "./select.js";
 import { selectSportsClips } from "./sports.js";
 import { renderClip, stitchReel } from "./render.js";
+import { planReframe } from "./reframe.js";
 
 function pkgVersion() {
   try {
@@ -41,7 +42,15 @@ export async function run(argv) {
     .option("--cookies <file>", "cookies.txt for YouTube auth")
     .option("--cookies-from-browser <name>", "browser to read YouTube cookies from (firefox|edge|chrome)")
     .option("--font <name>", "caption font", "Arial")
-    .option("--fit <mode>", "framing: cover (crop to fill) | contain (pad, nothing cut) | blur (fit + blurred fill)", "cover")
+    .option("--fit <mode>", "framing: cover (crop) | contain (pad) | blur (blurred fill) | smart (subject-tracking pan)", "cover")
+    .option("--reframe-backend <name>", "smart reframe detector: onnx (local) | vintel (cloud) | mock", "onnx")
+    .option("--reframe-model <path>", "smart reframe: YOLOv8 .onnx model path (or set VZT_REFRAME_MODEL)")
+    .option("--reframe-conf <0..1>", "smart reframe: detection confidence threshold", (v) => parseFloat(v), 0.35)
+    .option("--reframe-fps <n>", "smart reframe: detection sample rate", (v) => parseFloat(v), 5)
+    .option("--reframe-smooth <0..1>", "smart reframe: camera smoothing (higher = steadier)", (v) => parseFloat(v), 0.85)
+    .option("--reframe-deadzone <px>", "smart reframe: ignore subject jitter under N source px", (v) => parseFloat(v), 24)
+    .option("--reframe-letterbox <fit>", "smart reframe: fit for clips too wide to pan (blur|contain|cover)", "blur")
+    .option("--no-reframe-audio-hold", "smart reframe: don't hold the camera during silence")
     .option("--no-captions", "skip burned-in captions (just cut + reframe)")
     .action(main);
 
@@ -53,8 +62,8 @@ async function main(input, opts) {
   if (!["claude", "codex"].includes(opts.engine)) {
     throw new Error(`--engine must be "claude" or "codex" (got "${opts.engine}")`);
   }
-  if (!["cover", "contain", "blur"].includes(opts.fit)) {
-    throw new Error(`--fit must be "cover", "contain", or "blur" (got "${opts.fit}")`);
+  if (!["cover", "contain", "blur", "smart"].includes(opts.fit)) {
+    throw new Error(`--fit must be "cover", "contain", "blur", or "smart" (got "${opts.fit}")`);
   }
   const outDir = resolvePath(opts.out);
   const workDir = join(outDir, ".work");
@@ -131,13 +140,35 @@ async function main(input, opts) {
   for (let i = 0; i < clips.length; i++) {
     const c = clips[i];
     const name = `${String(i + 1).padStart(2, "0")}-${slug(c.title)}`;
+    // Plan the subject-tracking camera path (null → renderClip falls back to cover).
+    let reframe = null;
+    let fit = opts.fit;
+    if (opts.fit === "smart") {
+      reframe = await planReframe(videoPath, c, {
+        fps: opts.reframeFps,
+        smooth: opts.reframeSmooth,
+        deadzone: opts.reframeDeadzone,
+        backend: opts.reframeBackend,
+        modelPath: opts.reframeModel,
+        confThres: opts.reframeConf,
+        letterboxFit: opts.reframeLetterbox,
+        audioHold: opts.reframeAudioHold, // --no-reframe-audio-hold → false
+        workDir,
+      });
+      // Wide multi-subject clip: pan would cut someone — letterbox the whole clip.
+      if (reframe?.recommendFit) {
+        log.info(`smart reframe: ${reframe.reason} → rendering as ${reframe.recommendFit}`);
+        fit = reframe.recommendFit;
+        reframe = null;
+      }
+    }
     const file = await renderClip(
       videoPath,
       c,
       opts.captions ? words : [],
       outDir,
       name,
-      { caption: { font: opts.font }, fit: opts.fit, staticTitle: sports && opts.captions ? c.title : null },
+      { caption: { font: opts.font }, fit, reframe, staticTitle: sports && opts.captions ? c.title : null },
     );
     results.push({ ...c, file });
     log.ok(`#${i + 1} → ${file}`);
