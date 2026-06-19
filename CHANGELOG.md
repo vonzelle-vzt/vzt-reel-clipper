@@ -19,6 +19,28 @@ All notable changes to this project are documented here. The format is based on
   - `contain` — scale the whole frame to fit and pad with black; nothing is cut
     off. Ideal for slides / screen-shares where edge text or charts matter.
   - `blur` — fit the frame sharp and fill the bars with a blurred zoom of itself.
+- **`--fit smart` — subject-tracking auto-reframe.** Instead of a fixed
+  center-crop, smart mode slides a full-height 9:16 crop window to follow the
+  subject. It plans a smoothed virtual-camera path (`src/reframe.js`) and drives
+  ffmpeg's `crop` via `sendcmd` in the single render pass. Behaviours:
+  - **Union framing** — centers *between* two subjects when they fit the frame.
+  - **Auto-letterbox** — clips too wide to pan re-render whole as
+    `--reframe-letterbox` (default `blur`) instead of cropping someone out.
+  - **Cut snap** — the camera hard-resets at scene cuts (no pan across an edit).
+  - **Audio hold** — uses ebur128 loudness to keep the camera still during
+    silence; disable with `--no-reframe-audio-hold`.
+  - Pluggable **detector backends**: `onnx` (default — local YOLOv8 via
+    `onnxruntime-node`, no paid API; `--reframe-model` / `VZT_REFRAME_MODEL`),
+    `vintel` (cloud SAM2 via the `vintel entities` command), and `mock`
+    (synthetic, for preview). Backends are lazy and fail soft — if none is
+    available, smart mode logs a notice and falls back to center `cover`, so
+    `--fit smart` is always safe to try.
+  - Tuning: `--reframe-backend`, `--reframe-model`, `--reframe-conf`,
+    `--reframe-fps`, `--reframe-smooth`, `--reframe-deadzone`,
+    `--reframe-letterbox`, `--no-reframe-audio-hold`. Camera paths are cached in
+    `<out>/.work/reframe-<hash>.json`.
+  - *Not yet:* true active-speaker (lip-motion) switching — follows
+    size/position/faces, not who is currently talking.
 
 ### Fixed
 - **Paths with spaces** no longer break local transcription, LLM selection, or

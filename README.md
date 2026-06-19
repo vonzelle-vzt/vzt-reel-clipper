@@ -20,7 +20,7 @@ Local AI agent that turns **1 longform video → N captioned vertical shorts** �
 | `speech` *(default)* | podcasts, talking-head, lessons | transcript → `claude` picks best spoken moments | animated word-by-word |
 | `sports` | game film (raw sideline / phone-from-stands) | **audio-energy peaks** (crowd, contact, whistles) | "Big Play N" banner |
 
-Both reframe to **9:16 (1080×1920)**, burn captions with ffmpeg, write a `clips.json` manifest, and can stitch a highlight reel with `--reel`.
+Both reframe to **9:16 (1080×1920)** — center-crop by default, or **subject-tracking pan & scan with `--fit smart`** (follows the person, frames between two people, letterboxes wide shots, holds during silence) — burn captions with ffmpeg, write a `clips.json` manifest, and can stitch a highlight reel with `--reel`.
 
 ## Contents
 
@@ -177,10 +177,19 @@ like, then point the tool at the file.
 | `-e, --engine <name>` | `claude` | LLM for moment selection: `claude` or `codex` |
 | `--model <name>` | engine default | model override (claude → `sonnet`; codex → its config default) |
 | `--font <name>` | `Arial` | caption font |
+| `--fit <mode>` | `cover` | framing: `cover` (crop) / `contain` (pad) / `blur` / `smart` (subject-tracking) |
+| `--reframe-backend <name>` | `onnx` | smart detector: `onnx` (local, free) / `vintel` (cloud) / `mock` |
+| `--reframe-model <path>` | — | YOLOv8 `.onnx` for the `onnx` backend (or set `VZT_REFRAME_MODEL`) |
+| `--reframe-letterbox <fit>` | `blur` | fit for clips too wide to pan (`blur` / `contain` / `cover`) |
+| `--no-reframe-audio-hold` | off | smart: don't hold the camera during silence |
 | `--no-captions` | off | skip burned-in captions |
 | `--cookies <file>` | — | cookies.txt for YouTube |
 | `--cookies-from-browser <b>` | — | firefox / edge / chrome |
 | `-v, --version` | | print version |
+
+> Smart-reframe also takes `--reframe-smooth`, `--reframe-deadzone`,
+> `--reframe-fps` and `--reframe-conf` for fine tuning — see `--help` and
+> [docs/HOW-TO-USE.md#framing---fit](docs/HOW-TO-USE.md#framing---fit).
 
 ## Output
 
@@ -209,6 +218,11 @@ input ─▶ resolve ─▶  ┤                                          ├─
   frame-perfect timing).
 - **Caption style** lives in `src/ass.js` (font, size, colors, highlight scale,
   lower-third position) — tweak there.
+- **Smart reframe** (`--fit smart`, `src/reframe.js`): samples the clip, detects
+  the subject (local YOLOv8 or cloud SAM2), plans a smoothed virtual-camera path
+  and drives ffmpeg's `crop` via `sendcmd` in the single render pass — framing
+  between people, letterboxing wide shots, snapping at cuts, holding in silence.
+  Falls back to center-crop whenever a path can't be planned.
 
 Full data flow and the ffmpeg/ASS gotchas are documented in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -222,7 +236,7 @@ Full data flow and the ffmpeg/ASS gotchas are documented in
   people when they fit, letterboxing wide two-shots, hard-cutting at edits, and
   holding the camera during silence). Smart mode needs a detector backend (local
   `onnx` YOLOv8 or cloud `vintel`); without one it transparently falls back to
-  center-crop. See [Framing](docs/HOW-TO-USE.md#framing----fit) in the guide.
+  center-crop. See [Framing](docs/HOW-TO-USE.md#framing---fit) in the guide.
   True multi-speaker *active-speaker* switching (who's talking right now) is not
   yet modelled — it follows size/position/faces, not lip motion.
 - Local caption timing is interpolated (see above).

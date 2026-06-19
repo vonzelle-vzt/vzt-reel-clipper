@@ -25,9 +25,12 @@ pipeline you also need the `claude` and `vintel` CLIs; for the YouTube path,
 | `src/resolve.js` | input → local file (local passthrough / yt-dlp) |
 | `src/transcribe.js` | local WASM transcript + YouTube VTT word parser |
 | `src/select.js` | speech-mode moment selection via `claude` |
-| `src/sports.js` | sports-mode audio-energy peak detection |
+| `src/sports.js` | sports-mode audio-energy peak detection + shared `loudnessCurve` |
 | `src/ass.js` | ASS subtitle generation (karaoke + title banner) |
-| `src/render.js` | ffmpeg cut + 9:16 reframe + caption burn + reel stitch |
+| `src/render.js` | ffmpeg cut + 9:16 reframe (cover/contain/blur/smart) + caption burn + reel stitch |
+| `src/reframe.js` | `--fit smart` camera-path planner (track → union frame → smooth → keyframes) |
+| `src/detect/onnx.js` | local YOLOv8 subject detector (onnxruntime-node + raw-RGB from ffmpeg) |
+| `src/detect/vintel.js` | optional cloud subject detector (`vintel entities` / SAM2) |
 | `src/util.js` | exec/ffprobe/format helpers |
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the data flow.
@@ -45,4 +48,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the data flow.
 - Word-level local ASR backend (replace segment-interpolation for frame-perfect captions).
 - Fuse `vintel` visual scene/motion detection with audio peaks in sports mode.
 - Caption theme presets (font/color/position) and a `--theme` flag.
-- Optional speaker-active reframe (track the speaker instead of center-crop).
+- **Active-speaker reframe**: `--fit smart` already tracks subjects (size/position/
+  faces) — add true active-speaker selection (lip-motion / AV sync, e.g. TalkNet)
+  so it follows *who is talking* in a multi-person shot. See `src/reframe.js`.
+- A `python`/Ultralytics reframe backend (highest-quality YOLOv11 + ByteTrack).
