@@ -183,6 +183,7 @@ like, then point the tool at the file.
 | `--reframe-model <path>` | — | YOLOv8 `.onnx` for the `onnx` backend (or set `VZT_REFRAME_MODEL`) |
 | `--reframe-letterbox <fit>` | `blur` | fit for clips too wide to pan (`blur` / `contain` / `cover`) |
 | `--no-reframe-audio-hold` | off | smart: don't hold the camera during silence |
+| `--no-reframe-active-speaker` | off | smart: letterbox wide two-shots instead of following the talker |
 | `--no-captions` | off | skip burned-in captions |
 | `--cookies <file>` | — | cookies.txt for YouTube |
 | `--cookies-from-browser <b>` | — | firefox / edge / chrome |
@@ -234,12 +235,13 @@ Full data flow and the ffmpeg/ASS gotchas are documented in
   can't yet frame on a specific player or read the scoreboard.
 - Reframing defaults to a center-crop (`--fit cover`). For subject-tracking pan
   & scan use **`--fit smart`** — it follows the subject (framing *between* two
-  people when they fit, letterboxing wide two-shots, hard-cutting at edits, and
-  holding the camera during silence). Smart mode needs a detector backend (local
-  `onnx` YOLOv8 or cloud `vintel`); without one it transparently falls back to
-  center-crop. See [Framing](docs/HOW-TO-USE.md#framing---fit) in the guide.
-  True multi-speaker *active-speaker* switching (who's talking right now) is not
-  yet modelled — it follows size/position/faces, not lip motion.
+  people when they fit, following the **talker** in a wide two-shot, letterboxing
+  when it can't tell who's speaking, hard-cutting at edits, and holding during
+  silence). Smart mode needs a detector backend (local `onnx` YOLOv8 or cloud
+  `vintel`); without one it transparently falls back to center-crop. See
+  [Framing](docs/HOW-TO-USE.md#framing---fit) in the guide. The active-speaker
+  pick is a **mouth-motion proxy** (gated by audio), not true audio-visual
+  lip-sync — disable with `--no-reframe-active-speaker`.
 - Local caption timing is interpolated (see above).
 
 ## Built on the VZT stack

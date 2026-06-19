@@ -144,19 +144,29 @@ Smart mode also handles these automatically:
 
 - **Frames between people.** With two subjects in shot it centers *between*
   them rather than picking one — as long as they fit the 9:16 window.
-- **Letterboxes wide shots.** If the subjects are too far apart to fit (a wide
-  two-shot), it doesn't crop someone out — it renders the whole clip with the
-  `--reframe-letterbox` fit (default `blur`) instead of panning.
-- **Hard-cuts at edits.** The camera resets on scene cuts instead of sweeping
-  across them.
+- **Follows the talker in a two-shot.** When two people are too far apart to
+  fit, it follows whoever is *talking* — estimated from **mouth-region motion**
+  (who's moving their mouth) gated by audio — and cuts between them as the
+  speaker changes. Disable with `--no-reframe-active-speaker`.
+- **Letterboxes when there's no clear talker.** If it can't tell who's speaking
+  (no motion / no audio), it renders the wide clip with the `--reframe-letterbox`
+  fit (default `blur`) instead of cropping someone out.
+- **Hard-cuts at edits.** The camera resets on scene cuts (and on speaker
+  switches) instead of sweeping across them.
 - **Holds during silence.** It uses audio loudness to keep the camera still in
   pauses (so it doesn't drift on noise). Disable with `--no-reframe-audio-hold`.
+
+> The talker estimate is a **motion proxy**, not true audio-visual lip-sync — it
+> follows the moving mouth, which is right for clear talking-head two-shots and
+> may be wrong when both move a lot. `--no-reframe-active-speaker` falls back to
+> letterboxing those.
 
 Tuning knobs (all optional): `--reframe-smooth <0..1>` (higher = steadier
 camera), `--reframe-deadzone <px>` (ignore small jitter), `--reframe-fps <n>`
 (detection sample rate), `--reframe-conf <0..1>` (detection threshold),
 `--reframe-letterbox <blur|contain|cover>` (fit for un-pannable wide clips),
-`--no-reframe-audio-hold` (always pan, even in silence).
+`--no-reframe-audio-hold` (always pan, even in silence),
+`--no-reframe-active-speaker` (letterbox wide shots instead of following the talker).
 
 To just preview the camera motion without any model, use the synthetic backend:
 `--fit smart --reframe-backend mock`.

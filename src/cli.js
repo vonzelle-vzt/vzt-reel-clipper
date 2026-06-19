@@ -51,6 +51,7 @@ export async function run(argv) {
     .option("--reframe-deadzone <px>", "smart reframe: ignore subject jitter under N source px", (v) => parseFloat(v), 24)
     .option("--reframe-letterbox <fit>", "smart reframe: fit for clips too wide to pan (blur|contain|cover)", "blur")
     .option("--no-reframe-audio-hold", "smart reframe: don't hold the camera during silence")
+    .option("--no-reframe-active-speaker", "smart reframe: letterbox wide multi-person shots instead of following the talker")
     .option("--no-captions", "skip burned-in captions (just cut + reframe)")
     .action(main);
 
@@ -153,6 +154,7 @@ async function main(input, opts) {
         confThres: opts.reframeConf,
         letterboxFit: opts.reframeLetterbox,
         audioHold: opts.reframeAudioHold, // --no-reframe-audio-hold → false
+        activeSpeaker: opts.reframeActiveSpeaker, // --no-reframe-active-speaker → false
         workDir,
       });
       // Wide multi-subject clip: pan would cut someone — letterbox the whole clip.

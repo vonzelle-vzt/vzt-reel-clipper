@@ -214,6 +214,8 @@ export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 
   const segIds = segmentsFromCuts(frames, cuts);
   const centers = new Array(frames.length).fill(null);
   const widths = new Array(frames.length).fill(0);
+  // Per-frame salient subjects (id + center + box) — used by active-speaker.
+  const salientByFrame = Array.from({ length: frames.length }, () => []);
   let anySubject = false;
 
   const bySeg = new Map();
@@ -222,7 +224,7 @@ export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 
     bySeg.get(s).push(i);
   });
 
-  for (const [, idxs] of bySeg) {
+  for (const [segKey, idxs] of bySeg) {
     const segBoxes = idxs.map((i) => boxesByFrame[i]?.boxes || []);
     const tracks = buildTracks(segBoxes, geom);
     if (!tracks.length) continue;
@@ -233,6 +235,7 @@ export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 
     const dominant = tracks.reduce((a, b) => (score(b) > score(a) ? b : a));
     const domArea = meanArea(dominant);
     const salient = tracks.filter((t) => t === dominant || meanArea(t) >= unionAreaFrac * domArea);
+    salient.forEach((t, k) => (t._id = `${segKey}:${k}`)); // stable id within the run
 
     idxs.forEach((gi, li) => {
       let minx = Infinity;
@@ -244,6 +247,7 @@ export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 
         has = true;
         minx = Math.min(minx, b.x);
         maxx = Math.max(maxx, b.x + b.w);
+        salientByFrame[gi].push({ id: t._id, cx: b.x + b.w / 2, cy: b.y + b.h / 2, box: b });
       }
       if (has) {
         centers[gi] = (minx + maxx) / 2;
@@ -266,7 +270,23 @@ export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 
   }
 
   for (let i = 0; i < centers.length; i++) if (centers[i] == null) centers[i] = geom.w / 2;
-  return { centers, widths, segIds, anySubject };
+  return { centers, widths, segIds, anySubject, salientByFrame };
+}
+
+// Forward/backward-fill null centers, defaulting to the frame center.
+function fillCenters(centers, geom) {
+  let prev = null;
+  for (let i = 0; i < centers.length; i++) {
+    if (centers[i] != null) prev = centers[i];
+    else if (prev != null) centers[i] = prev;
+  }
+  let nxt = null;
+  for (let i = centers.length - 1; i >= 0; i--) {
+    if (centers[i] != null) nxt = centers[i];
+    else if (nxt != null) centers[i] = nxt;
+  }
+  for (let i = 0; i < centers.length; i++) if (centers[i] == null) centers[i] = geom.w / 2;
+  return centers;
 }
 
 // --------------------------------------------------------------- smoothing
@@ -384,6 +404,151 @@ async function computeGate(source, clip, frames, injected) {
   return frames.map((f) => interpAt(ts, ys, f.t) >= floor);
 }
 
+// ------------------------------------------------------- active speaker
+
+// One cheap low-res grayscale pass over the clip — the pixels we measure mouth
+// motion from. Backend-agnostic (independent of how subjects were detected).
+async function motionGrid(source, clip, fps, gw = 160, gh = 90) {
+  const dir = mkdtempSync(join(tmpdir(), "vzt-reframe-mo-"));
+  const dur = Math.max(0.1, clip.end - clip.start);
+  try {
+    await exec(
+      FFMPEG,
+      ["-y", "-ss", clip.start.toFixed(3), "-i", source, "-t", dur.toFixed(3),
+        "-vf", `fps=${fps},scale=${gw}:${gh},format=gray`, "-pix_fmt", "gray", "-f", "rawvideo", "g.raw"],
+      { cwd: dir, check: true },
+    );
+    const data = readFileSync(join(dir, "g.raw"));
+    return { data, gw, gh, count: Math.floor(data.length / (gw * gh)) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Average luma of a subject's MOUTH region (upper-centre of the person box,
+// where a talking head's mouth sits) on one grid frame.
+export function regionLuma(grid, frameIdx, geom, box) {
+  const { data, gw, gh } = grid;
+  const sx = gw / geom.w;
+  const sy = gh / geom.h;
+  const cx = box.x + box.w / 2;
+  const rx0 = cx - 0.15 * box.w;
+  const rx1 = cx + 0.15 * box.w;
+  const ry0 = box.y + 0.1 * box.h;
+  const ry1 = box.y + 0.3 * box.h;
+  let gx0 = Math.max(0, Math.floor(rx0 * sx));
+  let gx1 = Math.min(gw - 1, Math.ceil(rx1 * sx));
+  let gy0 = Math.max(0, Math.floor(ry0 * sy));
+  let gy1 = Math.min(gh - 1, Math.ceil(ry1 * sy));
+  if (gx1 < gx0) gx1 = gx0;
+  if (gy1 < gy0) gy1 = gy0;
+  const base = frameIdx * gw * gh;
+  let sum = 0;
+  let n = 0;
+  for (let y = gy0; y <= gy1; y++) {
+    for (let x = gx0; x <= gx1; x++) {
+      sum += data[base + y * gw + x];
+      n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
+
+// Attach a per-frame motion score `.act` to each salient entry: the change in
+// its mouth-region luma since that subject was last seen (talking ⇒ motion).
+function computeActivity(salientByFrame, grid, geom) {
+  const prev = new Map();
+  for (let i = 0; i < salientByFrame.length; i++) {
+    const haveFrame = i < grid.count;
+    for (const e of salientByFrame[i]) {
+      const lu = haveFrame ? regionLuma(grid, i, geom, e.box) : 0;
+      const p = prev.get(e.id);
+      e.act = p == null ? 0 : Math.abs(lu - p);
+      prev.set(e.id, lu);
+    }
+  }
+}
+
+/**
+ * Choose which subject to follow per frame from their motion `.act`, switching
+ * only during speech (`gate`), only after a minimum dwell, and only when a
+ * challenger clearly out-moves the current subject (hysteresis → no flicker).
+ * @returns {{centers:(number|null)[], switchAt:boolean[], confident:boolean}}
+ */
+export function selectActiveSpeaker(salientByFrame, frames, gate, { fps = 5, switchMargin = 1.5, minDwellSec = 0.6, actFloor = 1.0 } = {}) {
+  const centers = new Array(frames.length).fill(null);
+  const switchAt = new Array(frames.length).fill(false);
+  const minDwell = Math.max(1, Math.round(minDwellSec * fps));
+  let curId = null;
+  let dwell = Infinity;
+  let maxAct = 0;
+  for (let i = 0; i < frames.length; i++) {
+    const cands = salientByFrame[i] || [];
+    dwell++;
+    if (!cands.length) continue;
+    for (const c of cands) maxAct = Math.max(maxAct, c.act || 0);
+    const sorted = [...cands].sort((a, b) => (b.act || 0) - (a.act || 0));
+    const best = sorted[0];
+    const second = sorted[1];
+    const speaking = !gate || gate[i];
+    if (curId == null) {
+      curId = best.id;
+      dwell = 0;
+    } else if (speaking && best.id !== curId && dwell >= minDwell && (best.act || 0) > 0) {
+      const curAct = cands.find((c) => c.id === curId)?.act || 0;
+      const overSecond = !second || (best.act || 0) >= (second.act || 0) * switchMargin;
+      const overCurrent = (best.act || 0) >= curAct * switchMargin;
+      if (overSecond && overCurrent) {
+        curId = best.id;
+        dwell = 0;
+        switchAt[i] = true;
+      }
+    }
+    centers[i] = (cands.find((c) => c.id === curId) || best).cx;
+  }
+  // Confident only if we actually saw mouth motion worth following.
+  return { centers, switchAt, confident: maxAct >= actFloor };
+}
+
+// Bump the segment id at every scene cut AND every speaker switch, so the path
+// hard-snaps (no slow pan) when the camera changes who it's following.
+function mergeSwitchSegments(segIds, switchAt) {
+  const out = [];
+  let cur = -1;
+  let lastScene = null;
+  for (let i = 0; i < segIds.length; i++) {
+    if (segIds[i] !== lastScene || switchAt[i]) cur++;
+    lastScene = segIds[i];
+    out[i] = cur;
+  }
+  return out;
+}
+
+// Try to build a speaker-following path for a wide multi-subject clip. Returns a
+// keyframe path, or null (→ caller letterboxes) when there's no clear talker.
+async function tryActiveSpeaker(p) {
+  let grid;
+  try {
+    grid = await motionGrid(p.source, p.clip, p.fps);
+  } catch {
+    return null;
+  }
+  if (!grid.count) return null;
+  computeActivity(p.salientByFrame, grid, p.geom);
+  let gate = null;
+  try {
+    gate = await computeGate(p.source, p.clip, p.frames, p.loudness);
+  } catch {
+    /* no audio → switch on motion alone */
+  }
+  const sel = selectActiveSpeaker(p.salientByFrame, p.frames, gate, { fps: p.fps });
+  if (!sel.confident) return null;
+  fillCenters(sel.centers, p.geom);
+  const seg2 = mergeSwitchSegments(p.segIds, sel.switchAt);
+  const smoothed = smoothCenters(sel.centers, seg2, p.geom, p.crop, { smooth: p.smooth, deadzone: p.deadzone, fps: p.fps });
+  return buildKeyframes(smoothed, p.frames, seg2, p.crop, p.geom);
+}
+
 // --------------------------------------------------------------- cache
 
 function cacheKey(source, clip, o) {
@@ -396,7 +561,7 @@ function cacheKey(source, clip, o) {
   }
   return createHash("sha1")
     .update(
-      [source, stat, clip.start, clip.end, o.fps, o.backend, o.smooth, o.deadzone, o.modelPath || "", o.confThres ?? "", o.audioHold ? 1 : 0, o.letterboxFit || "", VERSION].join("|"),
+      [source, stat, clip.start, clip.end, o.fps, o.backend, o.smooth, o.deadzone, o.modelPath || "", o.confThres ?? "", o.audioHold ? 1 : 0, o.activeSpeaker ? 1 : 0, o.letterboxFit || "", VERSION].join("|"),
     )
     .digest("hex")
     .slice(0, 16);
@@ -417,6 +582,7 @@ export async function planReframe(source, clip, opts = {}) {
   const smooth = opts.smooth ?? 0.85;
   const deadzone = opts.deadzone ?? 24;
   const audioHold = opts.audioHold !== false;
+  const activeSpeaker = opts.activeSpeaker !== false;
   const letterboxFit = ["blur", "contain", "cover"].includes(opts.letterboxFit) ? opts.letterboxFit : "blur";
   const letterboxFrac = opts.letterboxFrac ?? 0.6;
   const workDir = opts.workDir || null;
@@ -446,7 +612,7 @@ export async function planReframe(source, clip, opts = {}) {
   }
 
   const cachePath = workDir
-    ? join(workDir, `reframe-${cacheKey(source, clip, { fps, backend, smooth, deadzone, modelPath: opts.modelPath, confThres: opts.confThres, audioHold, letterboxFit })}.json`)
+    ? join(workDir, `reframe-${cacheKey(source, clip, { fps, backend, smooth, deadzone, modelPath: opts.modelPath, confThres: opts.confThres, audioHold, activeSpeaker, letterboxFit })}.json`)
     : null;
   if (cachePath && existsSync(cachePath)) {
     try {
@@ -466,7 +632,7 @@ export async function planReframe(source, clip, opts = {}) {
 
     const detected = await detect(frames, { ...geom, source, clip, fps });
     const boxesByFrame = normalizeBoxes(detected, frames.length);
-    const { centers, widths, segIds, anySubject } = planTargets(frames, boxesByFrame, cuts, geom, {
+    const { centers, widths, segIds, anySubject, salientByFrame } = planTargets(frames, boxesByFrame, cuts, geom, {
       unionAreaFrac: opts.unionAreaFrac,
     });
 
@@ -476,10 +642,38 @@ export async function planReframe(source, clip, opts = {}) {
       return null;
     }
 
-    // Too wide to pan without cutting subjects → letterbox the whole clip.
+    // Too wide to pan without cutting subjects.
     const widthsValid = widths.filter((w) => w > 0);
     const wideFrac = widthsValid.length ? widthsValid.filter((w) => w > crop.cropW).length / widthsValid.length : 0;
     if (wideFrac >= letterboxFrac) {
+      // Prefer following the active speaker over letterboxing the whole clip.
+      if (activeSpeaker) {
+        const asPath = await tryActiveSpeaker({ source, clip, fps, frames, geom, crop, segIds, salientByFrame, smooth, deadzone, loudness: opts.loudness });
+        if (asPath && asPath.length) {
+          log.info("smart reframe: wide shot — following the active speaker");
+          const result = {
+            version: VERSION,
+            backend,
+            fps,
+            mode: "active-speaker",
+            cropW: crop.cropW,
+            cropH: crop.cropH,
+            sourceW: geom.w,
+            sourceH: geom.h,
+            keyframes: asPath,
+            fallback: null,
+          };
+          if (cachePath) {
+            try {
+              writeFileSync(cachePath, JSON.stringify(result));
+            } catch {
+              /* non-fatal */
+            }
+          }
+          return result;
+        }
+      }
+      // No clear talker → letterbox the whole clip.
       const result = {
         version: VERSION,
         backend,

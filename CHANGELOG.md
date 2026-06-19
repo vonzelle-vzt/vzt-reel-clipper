@@ -24,8 +24,13 @@ All notable changes to this project are documented here. The format is based on
   subject. It plans a smoothed virtual-camera path (`src/reframe.js`) and drives
   ffmpeg's `crop` via `sendcmd` in the single render pass. Behaviours:
   - **Union framing** — centers *between* two subjects when they fit the frame.
-  - **Auto-letterbox** — clips too wide to pan re-render whole as
-    `--reframe-letterbox` (default `blur`) instead of cropping someone out.
+  - **Active-speaker** — in a wide two-shot it follows the *talker*, estimated
+    from mouth-region motion gated by audio (with dwell/margin hysteresis and a
+    cut at each speaker switch). A motion proxy, not AV lip-sync; disable with
+    `--no-reframe-active-speaker`.
+  - **Auto-letterbox** — when there's no clear talker, clips too wide to pan
+    re-render whole as `--reframe-letterbox` (default `blur`) instead of cropping
+    someone out.
   - **Cut snap** — the camera hard-resets at scene cuts (no pan across an edit).
   - **Audio hold** — uses ebur128 loudness to keep the camera still during
     silence; disable with `--no-reframe-audio-hold`.
@@ -39,8 +44,8 @@ All notable changes to this project are documented here. The format is based on
     `--reframe-fps`, `--reframe-smooth`, `--reframe-deadzone`,
     `--reframe-letterbox`, `--no-reframe-audio-hold`. Camera paths are cached in
     `<out>/.work/reframe-<hash>.json`.
-  - *Not yet:* true active-speaker (lip-motion) switching — follows
-    size/position/faces, not who is currently talking.
+  - *Not yet:* true audio-visual active-speaker detection (AV lip-sync, e.g.
+    TalkNet) — the talker pick is a mouth-motion proxy, not a trained AV model.
 
 ### Changed
 - **Bundled ffmpeg via `ffmpeg-static`.** ffmpeg is now resolved from the bundled

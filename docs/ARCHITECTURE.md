@@ -75,10 +75,16 @@ input ─▶ resolve ─▶ ┤                                            ├�
   - **Union framing** (`planTargets`): follows the bounding box of the *salient*
     subjects (dominant track + comparably-sized tracks), so two people are
     framed between them.
-  - **Auto-letterbox**: if that union exceeds the 9:16 crop window for most of
-    the clip, `planReframe` returns a `recommendFit` (`blur`/`contain`) instead
-    of a pan path and the CLI re-renders the whole clip with that fit — no
-    one gets cropped out, and it stays a single pass.
+  - **Active-speaker** (`selectActiveSpeaker`): when the union is too wide to
+    pan, instead of letterboxing it follows the *talker* — a cheap low-res
+    grayscale pass (`motionGrid`) measures each subject's mouth-region luma
+    change (`regionLuma`) over time; the most active subject (gated by the audio
+    speech curve, with dwell + margin hysteresis) is followed, snapping at
+    speaker switches. A motion proxy, not AV lip-sync.
+  - **Auto-letterbox**: if there's no clear talker (no motion / no audio),
+    `planReframe` returns a `recommendFit` (`blur`/`contain`) instead of a pan
+    path and the CLI re-renders the whole clip with that fit — no one gets
+    cropped out, and it stays a single pass.
   - **Cut snap** (`buildKeyframes`): keyframes are densified *within* each
     segment, so the `crop x` hard-steps at a cut rather than smearing across it.
   - **Audio hold** (`smoothCenters` + `loudnessCurve` from `src/sports.js`):

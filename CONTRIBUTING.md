@@ -48,7 +48,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the data flow.
 - Word-level local ASR backend (replace segment-interpolation for frame-perfect captions).
 - Fuse `vintel` visual scene/motion detection with audio peaks in sports mode.
 - Caption theme presets (font/color/position) and a `--theme` flag.
-- **Active-speaker reframe**: `--fit smart` already tracks subjects (size/position/
-  faces) — add true active-speaker selection (lip-motion / AV sync, e.g. TalkNet)
-  so it follows *who is talking* in a multi-person shot. See `src/reframe.js`.
+- **Active-speaker reframe**: `--fit smart` already follows the talker in a
+  two-shot via a *mouth-motion proxy* (`selectActiveSpeaker` in `src/reframe.js`).
+  Upgrade it to true audio-visual lip-sync (e.g. TalkNet / Light-ASD) for
+  robustness when both subjects move.
 - A `python`/Ultralytics reframe backend (highest-quality YOLOv11 + ByteTrack).

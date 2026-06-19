@@ -11,7 +11,7 @@ import { buildAss, buildTitleAss } from "../src/ass.js";
 import { parseVtt } from "../src/transcribe.js";
 import { selectSportsClips } from "../src/sports.js";
 import { renderClip, stitchReel } from "../src/render.js";
-import { planReframe, smoothCenters } from "../src/reframe.js";
+import { planReframe, smoothCenters, selectActiveSpeaker, regionLuma } from "../src/reframe.js";
 import { letterbox, decodeYolo, nms } from "../src/detect/onnx.js";
 import { mapEntitiesToFrames } from "../src/detect/vintel.js";
 import { exec, ffprobeDuration, FFMPEG, FFPROBE } from "../src/util.js";
@@ -179,7 +179,7 @@ process.on("exit", () => rmSync(work, { recursive: true, force: true }));
       const mk = (cx) => ({ x: cx - bw / 2, y: wide.h * 0.2, w: bw, h: wide.h * 0.6, score: 0.9, cls: "person" });
       return { frameIdx: i, boxes: [mk(wide.w * 0.15), mk(wide.w * 0.85)] };
     });
-  const lb = await planReframe("x.mp4", { start: 0, end: 3 }, { detect: farApart, sceneCuts: false, cuts: [], audioHold: false, fps, sourceDims: wide, letterboxFit: "blur" });
+  const lb = await planReframe("x.mp4", { start: 0, end: 3 }, { detect: farApart, sceneCuts: false, cuts: [], audioHold: false, activeSpeaker: false, fps, sourceDims: wide, letterboxFit: "blur" });
   assert.equal(lb.recommendFit, "blur", "wide two-shot recommends a letterbox fit");
   assert.equal(lb.keyframes.length, 0, "letterbox recommendation carries no pan path");
   ok("planReframe: wide multi-subject clip auto-letterboxes");
@@ -194,6 +194,46 @@ process.on("exit", () => rmSync(work, { recursive: true, force: true }));
   const silent = smoothCenters(moving, segIds, geom, crop, { smooth: 0.6, deadzone: 0, fps, gate: new Array(N).fill(false), quietDamp: 0.1 });
   assert.ok(active.at(-1) > silent.at(-1) + 40, `silence holds the camera (active ${active.at(-1).toFixed(0)} vs held ${silent.at(-1).toFixed(0)})`);
   ok("smoothCenters: audio gate holds the camera during silence");
+}
+
+// --------------------------------------- unit: active speaker (Phase 4)
+{
+  const fps = 5;
+  const N = 20;
+
+  // (a) regionLuma: mouth region (upper part of the box) samples the bright top
+  // half of the grid, not the dark bottom — confirms the vertical mapping.
+  const geom = { w: 200, h: 200 };
+  const gw = 20;
+  const gh = 20;
+  const data = new Uint8Array(gw * gh);
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) data[y * gw + x] = y < gh / 2 ? 200 : 0;
+  const luma = regionLuma({ data, gw, gh, count: 1 }, 0, geom, { x: 50, y: 0, w: 100, h: 200 });
+  assert.ok(luma > 150, `mouth region reads the bright upper band (${luma.toFixed(0)})`);
+  ok("regionLuma: samples the mouth region in grid space");
+
+  // (b) selectActiveSpeaker: subject A moves (talks) in the first half, B in the
+  // second — the camera should start on A, switch to B, once.
+  const frames = Array.from({ length: N }, (_, i) => ({ frameIdx: i, t: i / fps }));
+  const moving = frames.map((f, i) => [
+    { id: "A", cx: 100, act: i < N / 2 ? 10 : 0 },
+    { id: "B", cx: 500, act: i < N / 2 ? 0 : 10 },
+  ]);
+  const sel = selectActiveSpeaker(moving, frames, null, { fps, minDwellSec: 0.4, switchMargin: 1.5 });
+  assert.ok(sel.confident, "clear mouth motion ⇒ confident");
+  assert.equal(sel.centers[2], 100, "follows the talking subject A first");
+  assert.equal(sel.centers[N - 1], 500, "switches to subject B when A goes quiet");
+  assert.equal(sel.switchAt.filter(Boolean).length, 1, "exactly one speaker switch (hysteresis, no flicker)");
+  ok("selectActiveSpeaker: follows the talker and switches once");
+
+  // (c) no motion anywhere ⇒ not confident (caller will letterbox instead).
+  const still = frames.map(() => [
+    { id: "A", cx: 100, act: 0 },
+    { id: "B", cx: 500, act: 0 },
+  ]);
+  const flat = selectActiveSpeaker(still, frames, null, { fps });
+  assert.equal(flat.confident, false, "no mouth motion ⇒ not confident ⇒ letterbox");
+  ok("selectActiveSpeaker: bails (lets caller letterbox) when no one is talking");
 }
 
 // ------------------------------------------------------- integration: ffmpeg
