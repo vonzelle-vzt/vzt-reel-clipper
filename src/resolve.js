@@ -42,6 +42,8 @@ async function downloadYoutube(url, workDir, opts = {}) {
   // Cookie source for YouTube's bot check. Default: from Edge; overridable.
   if (opts.cookiesFile) args.push("--cookies", opts.cookiesFile);
   else if (opts.cookiesFromBrowser) args.push("--cookies-from-browser", opts.cookiesFromBrowser);
+  // Only the download goes through the proxy — everything downstream is local.
+  if (opts.proxy) args.push("--proxy", opts.proxy);
   args.push(url);
 
   const { code, stderr } = await exec("yt-dlp", args, {

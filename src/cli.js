@@ -41,6 +41,7 @@ export async function run(argv) {
     .option("--sensitivity <n>", "sports: peak threshold (lower = more clips)", (v) => parseFloat(v), 1.0)
     .option("--cookies <file>", "cookies.txt for YouTube auth")
     .option("--cookies-from-browser <name>", "browser to read YouTube cookies from (firefox|edge|chrome)")
+    .option("--proxy <url>", "proxy for the yt-dlp download, e.g. socks5://127.0.0.1:1080 or http://user:pass@host:port")
     .option("--font <name>", "caption font", "Arial")
     .option("--fit <mode>", "framing: cover (crop) | contain (pad) | blur (blurred fill) | smart (subject-tracking pan)", "cover")
     .option("--reframe-backend <name>", "smart reframe detector: onnx (local) | vintel (cloud) | mock", "onnx")
@@ -75,6 +76,7 @@ async function main(input, opts) {
   const { videoPath, vttPath, title } = await resolveInput(input, workDir, {
     cookiesFile: opts.cookies,
     cookiesFromBrowser: opts.cookiesFromBrowser,
+    proxy: opts.proxy,
   });
   log.ok(`source: ${videoPath}`);
 

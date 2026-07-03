@@ -220,6 +220,17 @@ YouTube blocks anonymous downloads, so you must hand it **browser cookies**:
   close the browser first, or export a `cookies.txt` (the "Get cookies.txt"
   extension) and use `--cookies cookies.txt`.
 
+If your IP is geo-blocked or throttled, route the download through a proxy with
+`--proxy` (passed straight to yt-dlp — any `http://`, `https://` or `socks5://`
+proxy URL works, credentials included):
+
+```bash
+vzt-reel-clipper "https://youtu.be/XXXX" --proxy socks5://127.0.0.1:1080 --cookies-from-browser firefox
+```
+
+Only the source download uses the proxy — transcription, selection and
+rendering all run locally and never touch the network.
+
 If it keeps fighting you: just download the video any way you like and run the
 tool on the **local file** — that path has none of this hassle.
 
@@ -251,6 +262,7 @@ The `.mp4`s are ready to upload to TikTok / Reels / Shorts as-is.
 | Sports mode finds too many | Raise `--sensitivity` (e.g. `1.3`). |
 | Plays start/end mid-action | Increase `--preroll` / `--postroll`. |
 | YouTube `Sign in to confirm…` / `DPAPI` | Use `--cookies-from-browser firefox` or a `cookies.txt`. |
+| Download geo-blocked / IP throttled | Route it through a proxy: `--proxy socks5://host:port`. |
 | Captions look off / wrong font | Change `--font`, or edit `src/ass.js` for size/color/position. |
 
 ---

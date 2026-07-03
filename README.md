@@ -160,6 +160,10 @@ YouTube path needs **deno** (auto-detected from `~/.deno/bin`) **and browser coo
   (Chromium app-bound encryption). Close the browser first, or export a `cookies.txt`
   ("Get cookies.txt" extension) and pass `--cookies cookies.txt`.
 
+Geo-blocked or IP-throttled? Route the download through any proxy with
+`--proxy <url>` (forwarded verbatim to yt-dlp; only the download uses it —
+everything downstream runs locally).
+
 The **local-file path has none of this friction** — download a video however you
 like, then point the tool at the file.
 
@@ -187,6 +191,7 @@ like, then point the tool at the file.
 | `--no-captions` | off | skip burned-in captions |
 | `--cookies <file>` | — | cookies.txt for YouTube |
 | `--cookies-from-browser <b>` | — | firefox / edge / chrome |
+| `--proxy <url>` | — | proxy for the yt-dlp download only (`http://` / `socks5://`, creds ok) |
 | `-v, --version` | | print version |
 
 > Smart-reframe also takes `--reframe-smooth`, `--reframe-deadzone`,

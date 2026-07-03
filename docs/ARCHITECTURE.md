@@ -18,7 +18,9 @@ input ─▶ resolve ─▶ ┤                                            ├�
 1. **resolve** (`src/resolve.js`)
    - Local file → passes straight through.
    - URL → `yt-dlp` downloads the video (auto-uses `~/.deno/bin` as the JS
-     runtime) and, when available, the word-level auto-sub `.vtt`.
+     runtime) and, when available, the word-level auto-sub `.vtt`. An optional
+     `--proxy <url>` is forwarded verbatim to yt-dlp — this download is the
+     pipeline's only network touch; every later stage is local.
 
 2. **select** — two strategies produce the same `{start, end, title, reason}` shape:
    - **speech** (`src/select.js`): build a timestamped transcript

@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **`--proxy <url>`** — passthrough to yt-dlp for the source download (any
+  `http://` / `https://` / `socks5://` proxy URL, credentials supported), for
+  geo-blocked or IP-throttled networks. Only the download is proxied;
+  transcription, selection and rendering stay fully local.
 - **Transcript caching.** The slow (~15 min) local WASM-whisper transcript is now
   written to `<out>/.work/transcript.json` and reused on subsequent runs, so
   iterating on the *same* source — changing `--count`, trying `--fit blur`,
