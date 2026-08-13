@@ -26,7 +26,19 @@ You need three things. Two are usually inferable, one is not.
 Also worth asking, but only if it matters: target length, and whether a
 specific player should be featured.
 
-## Step 1 — Inventory the footage
+## Step 1 — Watch it before touching any setting
+
+The first action on any received footage is **`reelclip watch`**, not
+`ffprobe` and not a selection flag. It samples frames, hands their paths to
+`claude -p` (which actually reads them), and reports what fraction of the
+file is real action versus b-roll/crowd/celebration/unclear:
+
+```bash
+reelclip watch <file> --sport <sport>
+```
+
+Look at the verdict it prints and the contact sheet before deciding anything
+else. Only after that:
 
 ```bash
 ls -la <dir>
@@ -45,6 +57,14 @@ corpus is searchable:
 vintel index <dir>
 ```
 
+**Failure mode this step exists to prevent:** four rounds were once spent
+tuning selection (`--sensitivity`, scoring weights) against a file that
+turned out to contain no live play at all — a warm-up session with no throws
+or catches in it. Every metric available at the time was invisible to that
+fact; `reelclip watch` would have shown it in the first pass. If `watch`
+reports a low action percentage, **say so to the user** rather than tuning
+the scorer — a reel cannot contain action the source footage does not have.
+
 ## Step 2 — Understand what's in it
 
 `vintel` runs offline and free in lite mode. Confirm with `vintel auto`.
@@ -55,9 +75,10 @@ vintel search <file> "player dunking"      # CLIP semantic search
 vintel observe <file>                      # fused timeline, if you need detail
 ```
 
-Use this to sanity-check that the action is where you think it is *before*
-rendering anything. If CLIP returns nothing useful, the pipeline falls back to
-motion + audio scoring — say so rather than pretending it used semantics.
+Use this alongside `watch` to sanity-check that the action is where you think
+it is *before* rendering anything. If CLIP returns nothing useful, the
+pipeline falls back to motion + audio scoring — say so rather than pretending
+it used semantics.
 
 ## Step 3 — Cut it
 
@@ -133,7 +154,8 @@ Tell the user:
 
 | What you see | Cause | Fix |
 |---|---|---|
-| `no plays found` | nothing stands out from the footage | `--sensitivity 0.5`; confirm the file has action |
+| `reelclip watch` reports low action % | the source footage genuinely has little/no live play (e.g. a warm-up, not a game) | **say so to the user** — do not tune `--sensitivity` or scoring weights against it; a reel cannot contain action the source does not have |
+| `no plays found` | nothing stands out from the footage | `--sensitivity 0.5`; confirm the file has action (check with `reelclip watch` first) |
 | `audio track unusable` | silent stream, or nothing above -70 LUFS | expected on phone/tripod film; scoring drops to motion + context |
 | `play spacing relaxed 20s → 4s` | short or already-edited source | expected; the profile gap assumes raw game film |
 | shots show players standing around | silent film, so no dead-ball tell | raise `--sensitivity`; dead-ball rejection needs audio |

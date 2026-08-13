@@ -159,16 +159,27 @@ neutral and there are no peaks to find. Worse, when there *is* crowd audio, the
 loudest moments are often *dead* — the whistle, and the crowd still roaring
 while everyone stands around.
 
-Score on motion (0.40) + audio (0.25) + context (0.35, CLIP hits for that
+Score on motion (0.30) + **burst** (0.25) + audio (0.20) + context (0.25, CLIP hits for that
 sport). Reject **loud-but-still** as dead ball. Do *not* reject quiet-and-still
 on audio grounds — on silent phone film that is where the action lives.
 
-Two traps worth knowing, both found on real footage:
+**Burst** is the half-wave-rectified derivative of the motion curve — where
+something *starts* happening. Magnitude alone cannot tell a play from a crowd
+milling about, because both are "some pixels changed"; what separates them is
+the onset. A play begins with a near-simultaneous acceleration and then
+sustains, while standing around is flat.
+
+Three traps worth knowing, all found on real footage:
 
 - **A silent track is not a missing track.** A file can carry an audio stream
   with no sound in it; normalizing that flat line yields a constant 0.5 that
   looks like data and dilutes every score. Drop it instead, so its weight goes
   to motion and context.
+- **Measure motion in the field band, not the whole frame.** A substitute
+  standing two metres from the lens moves far more pixels than a receiver
+  fifty yards downfield, so whole-frame motion tracks the sideline and ranks
+  players standing with their hands on their hips as the biggest play in the
+  video. Restricting to the middle band puts the field back in charge.
 - **Dead-ball rejection needs audio.** On fully silent film there is no
   loud-but-still tell, so nothing is rejected and sideline milling can be
   selected. Expect to raise `--sensitivity` on such footage, and say so rather

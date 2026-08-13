@@ -31,6 +31,9 @@ Both `speech` and `sports` reframe to **9:16 (1080×1920)** — center-crop by d
 - [Usage](#usage)
 - [Sports mode](#sports-mode)
 - [Hype mode](#hype-mode)
+- [Watch a video](#watch-a-video)
+- [Learn an editing style](#learn-an-editing-style)
+- [Apple Music](#apple-music)
 - [YouTube input](#youtube-input)
 - [Options](#options)
 - [Output](#output)
@@ -44,7 +47,7 @@ Both `speech` and `sports` reframe to **9:16 (1080×1920)** — center-crop by d
 | **ffmpeg** | bundled via `ffmpeg-static` (ships libass, so captions burn anywhere) — no install needed; override with `VZT_FFMPEG` |
 | **ffprobe** (on PATH) | media duration/size probing — override with `VZT_FFPROBE` |
 | **node ≥ 20** | the CLI |
-| **claude** *or* **codex** CLI (logged in) | speech-mode moment selection (`--engine`) |
+| **claude** *or* **codex** CLI (logged in) | speech-mode moment selection (`--engine`); also drives `reelclip watch`'s and `reelclip learn`'s vision pass (`claude -p`, not `--engine`-selectable) |
 | **vintel** (`vzt-video-intel`) CLI | **required** for speech-mode local transcription (first run downloads a ~75 MB Whisper model). **Optional** for hype mode — an on-PATH `vintel` adds CLIP semantic search for B-roll/highlight scoring; without it, hype mode degrades gracefully to motion+audio scoring. |
 | **onnxruntime-node** (optional npm dep) | only `--reframe-backend onnx` (local YOLOv8 person detection, for talking-head footage); the default `motion` backend needs no model and no extra dependency |
 | **your own audio** (music + sfx) | hype mode — see [Hype mode](#hype-mode); nothing copyrighted ships with the repo |
@@ -59,7 +62,7 @@ git clone https://github.com/vonzelle-vzt/vzt-reel-clipper.git
 cd vzt-reel-clipper
 npm install
 npm link        # optional — puts `vzt-reel-clipper` (and `reelclip`) on PATH
-npm test        # optional — self-contained smoke tests (31 tests)
+npm test        # optional — self-contained smoke tests (41 tests)
 ```
 
 ## How to use
@@ -237,6 +240,9 @@ unrecognized or omitted `--sport`).
 | `--no-ramps` | off | don't speed-ramp into the moment of impact |
 | `--no-sfx` | off | don't mix sound effects |
 | `--ambience <0..1>` | `0.18` | how much source (game) audio sits under the music |
+| `--style <name>` | — | cut in a style learned with `reelclip learn` — see [Learn an editing style](#learn-an-editing-style) |
+| `--apple-music <query>` | — | resolve tempo from an Apple Music preview instead of `--music`/`--bpm` — see [Apple Music](#apple-music) |
+| `--drop-from-music` | off | read the drop from the Music app's current playhead instead of `--drop` — see [Apple Music](#apple-music) |
 
 `--fit` and `--reframe-*` still apply to hype mode's framing (default `cover`).
 `--fit smart` plans a camera path **per shot**: each shot in the EDL gets its
@@ -255,6 +261,129 @@ clips/
   cover.jpg                 # cover frame — the hook shot on the drop
   edl.json                  # the edit decision list plan.js built (for inspection/reuse)
 ```
+
+## Watch a video
+
+Before tuning any selection flag, look at what's actually in the footage.
+`reelclip watch <video|url>` samples frames, hands their **paths** to `claude
+-p` (which `Read`s them — genuinely watching, not statistics dressed up as
+insight), and fuses the labels with independently measured motion, cuts and
+audio into one timeline. The mechanism is ported from `vzt-reel-studio`,
+which already proved it in that fleet.
+
+```bash
+reelclip watch game.mp4
+reelclip watch game.mp4 --density detail --sport football
+reelclip watch game.mp4 --no-describe   # measurement only, zero tokens
+```
+
+Frames are labelled in batches (~20 frames per `claude -p` call, bulk
+labelling on `haiku`) against a **closed-enum** schema — `action | broll |
+celebration | crowd | unclear` — so the answer can be counted, not just read.
+
+**`--density`** sets the sampling rate. A 512px frame costs ~197 vision
+tokens, so cost scales linearly with frame count:
+
+| density | fps | example cost |
+|---|---|---|
+| `skim` | 0.5 | a 64s clip ≈ 6k vision tokens |
+| `normal` *(default)* | 1 | a 4-minute video ≈ 47k vision tokens |
+| `detail` | 2 | ~2× `normal` |
+| `forensic` | 4 | ~4× `normal` |
+
+`--no-describe` skips the vision pass entirely — measurement only (motion,
+cuts, tempo), zero tokens.
+
+**Output** (`--out`, default `watch/`): `watch.json` (the fused timeline —
+per-frame label, motion, `ballVisible`, plus cuts and music), a contact
+sheet, the label mix, and the ranges where live action was found.
+
+**What this catches:** on real 7-on-7 game film, `watch` reported **25%
+action / 69% b-roll** — versus **13% action** on a warm-up file from the same
+session. That discrimination is the whole point: it tells playable game film
+from a session with no live reps in it, before a single clip gets cut.
+
+**Honest limits:**
+- **Sampling, not continuous.** An event that falls entirely between two
+  frames is missed — raise `--density` if that matters.
+- **Audio is analysed and transcribed, not heard.** Loudness and tempo feed
+  the measurement half of the timeline; a whistle or crowd roar shows up as a
+  motion/loudness signal, not as a labelled sound event.
+
+## Learn an editing style
+
+Point `reelclip learn <url|file> --name <style>` at an edit someone already
+cut well and it reverse-engineers the grammar into `src/styles/<name>.json`:
+BPM, the percentage of cuts landing on-beat (reported against a **chance**
+baseline, not the raw number alone), shot-length percentiles (in seconds and
+in beats), the best-fit pacing arc, ramp fraction, action %, and grade
+saturation.
+
+```bash
+reelclip learn "https://youtu.be/XXXX" --name roundtrip --sport football
+reelclip styles                                            # list what's been learned
+reelclip game.mp4 --mode hype --style roundtrip --music track.mp3
+```
+
+The downloaded reference video is **deleted** once measured — only the
+numbers and one contact sheet are kept.
+
+`--style` maps onto the same options `planEdit` already accepts (`arc`,
+`minShotBeats`, `rampCount`, `grade`). **An explicit CLI flag you type always
+beats the learned style**, and the run prints where each value came from:
+
+```
+style "roundtrip" → arc:flag minShotBeats:style rampCount:style
+```
+
+Two honesty behaviours worth knowing:
+
+- **Beat alignment is reported against a chance baseline.** At 120 BPM with a
+  ±60ms tolerance window, a *random* cut lands "on beat" about 24% of the
+  time — so the raw on-beat percentage alone is misleading; `learn` reports
+  it alongside `chance` and the `lift` over it.
+- **A weak arc fit is reported as one.** When the best-fitting arc's
+  correlation is below 0.4, the tool says "no clear shape" and falls back to
+  the neutral `steady` arc instead of asserting a shape it did not really
+  detect.
+
+**Known limitation:** shot-boundary detection misses cuts between visually
+similar shots. A round-trip on the project's own 9-shot reference reel
+recovered 7 of 9 shots.
+
+## Apple Music
+
+Apple Music subscription files are DRM-protected, and this tool never tries
+to circumvent that. Instead `--apple-music`, `music search` and `music now`
+pull the two numbers a hype edit needs from sources that are legitimately
+reachable:
+
+- **Tempo** — the public iTunes Search API returns a DRM-free 30-second AAC
+  preview for almost every catalog track, which is plenty of audio for
+  `music.js`'s onset/tempo estimator to lock onto a BPM.
+- **Drop** — read from the Music app's own player position via AppleScript:
+  scrub the real track to the drop, then run the command.
+
+```bash
+reelclip music search "dreams and nightmares meek mill"
+reelclip music now                                   # currently playing + position
+reelclip game.mp4 --mode hype --sport football \
+  --apple-music "dreams and nightmares meek mill" --drop-from-music
+```
+
+- **Octave warning.** A 30-second excerpt commonly reads at double the real
+  tempo — measured 198.8 BPM on a track that's actually about half that.
+  Anything above ~175 BPM (or below ~70) triggers a warning suggesting
+  `--bpm` to override.
+- **The preview's own "drop" is discarded.** It's a mid-track excerpt, so any
+  drop `music.js` finds inside it has nothing to do with the full song's
+  timeline. The real drop only comes from `--drop <sec>` or
+  `--drop-from-music`.
+- **`--apple-music` conflicts with `--music` and `--bpm`** — pass exactly one
+  tempo source. Like `--bpm`, it produces a silent master (there's no
+  full-length file to mix in), so it pairs with `--no-music-bed` for the
+  workflow where you cut to the beat and add the official track back in the
+  TikTok/Reels editor.
 
 ## YouTube input
 

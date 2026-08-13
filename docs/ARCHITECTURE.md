@@ -177,9 +177,19 @@ NextPlay hit the wall in production and documented it in
 every event scores a neutral 0.5 and the audio rescue never fires."* Silent
 sideline footage has no peaks for audio-only scoring to find.
 
-So `score.js` blends three signals, weighted `motion 0.40 / audio 0.25 /
-context 0.35` — that split is NextPlay's validated production number, not a
-guess. Any signal can be missing (no audio track, no `vintel` on PATH); when
+So `score.js` blends **four** signals, weighted `motion 0.30 / burst 0.25 /
+audio 0.20 / context 0.25` (`WEIGHTS` in `src/score.js`). The motion/audio/
+context split started from NextPlay's validated production numbers; `burst`
+was added afterwards and the rest rescaled to make room for it.
+
+`burst` — the half-wave-rectified derivative of the motion curve — is what
+separates a play from milling about. Raw motion magnitude cannot: both are
+"some pixels changed". A play *begins* with a near-simultaneous acceleration
+and then sustains, while a sideline crowd is flat. It carries the weight
+`context` cannot whenever semantic search is unavailable or degenerate, which
+on this footage is always.
+
+Any signal can be missing (no audio track, no `vintel` on PATH); when
 one is, its weight is **renormalized across the survivors** rather than
 silently dragging every score toward zero, which is what keeps a silent,
 vintel-less run working on motion alone.
@@ -302,6 +312,152 @@ exactly the symptom this fix corrects.
 `buildFitFilter`, exported from `src/render.js` — framing (`cover` / `contain`
 / `blur` / smart-reframe crop) is one implementation used by both the
 per-clip and the hype-reel render paths.
+
+## Watching video (`reelclip watch`)
+
+`src/watch.js` + `src/vision.js`. The tool was blind for a long time —
+selection ran entirely off motion and audio statistics, and three separate
+failures on real footage were invisible to every metric while obvious in a
+single frame: a "highlight reel" that was actually a warm-up session with no
+throws or catches in it, a semantic search that reported confident matches
+that were uniform noise, and a scorer that picked players standing with their
+hands on their hips because a sideline body near the lens outweighs a
+receiver fifty yards downfield in pixel terms.
+
+`watchVideo` fixes this by fusing two independent halves per frame:
+
+- **Measurement** (`src/inspect.js`, `src/score.js`, `src/intel.js`) — cheap,
+  deterministic, never skipped: frame extraction, `motionCurve`, scene cuts,
+  `analyzeMusic`. This is the half that works with no model installed.
+- **Vision** (`src/vision.js`) — `extractFrames` samples the source at
+  `--density` fps into numbered JPEGs, then `labelFrames` hands their
+  **paths** to `claude -p`, which `Read`s them and returns a closed-enum
+  label per frame (`action | broll | celebration | crowd | unclear`) plus a
+  short factual description. The mechanism is ported wholesale from
+  `vzt-reel-studio` (`src/llm.js`'s `VISION_PREFIX` + `src/verify/tier1.js`'s
+  batching), which already proved it in that fleet:
+  - the invocation prefix (`VISION_PREFIX` in `src/vision.js`) is **frozen**
+    so separate processes share the one-hour prompt cache; only `--model`,
+    `--json-schema` and the piped prompt vary between calls.
+  - the prompt goes over **stdin**, never argv.
+  - frames are batched (`BATCH_SIZE = 20`) rather than one call per frame.
+  - `--json-schema` forces the closed-enum answer (`WATCH_SCHEMA`), so the
+    result can be counted by code instead of parsed out of prose.
+  - results are matched back to requested frames **by timestamp**, not array
+    position — a short answer (19 entries for 20 frames) would otherwise
+    silently shift every later label onto the wrong moment.
+  - bulk labelling runs on `haiku`, because cost is not the obstacle: a
+    512px JPEG is ~197 vision tokens (`TOKENS_PER_FRAME`), so `--density`
+    `normal` (1 fps) over a 4-minute video is ~47k tokens and a 64s clip at
+    `skim` (0.5 fps) is ~6k — cheaper than most single file reads.
+
+Vision degrades to measurement-only rather than failing the run (`available()`
+caches whether `claude` is on PATH; `--no-describe` skips it deliberately for
+zero tokens) — the same fail-soft contract as `src/intel.js`.
+
+The two halves are fused in `watchVideo`'s `timeline`: `label` and
+`description` come from vision, `motion` from the measurement curve
+(nearest-timestamp lookup), so `t=12.0` in the output timeline is `{label:
+"action", motion: 0.81, ballVisible: true}` rather than two disconnected
+signals a caller has to reconcile.
+
+`summarize()` reports the resulting verdict — "is this file usable as game
+film at all?" — and is deliberately careful never to print a percentage for
+content it did not measure: skipping the vision pass prints "content not
+assessed", never "0% action", because not-measured is not zero. On real
+7-on-7 game film this reported 25% action / 69% b-roll, against 13% action on
+a warm-up file from the same session — the discrimination this module exists
+to make.
+
+## Learning a style (`reelclip learn`)
+
+`src/learn/index.js` (I/O: fetch, cut detection, vision, cleanup) +
+`src/learn/shots.js` (pure-ffmpeg shot measurement) + `src/learn/style.js`
+(pure derivation, no I/O — measurements in, style profile out, so every
+derived number is asserted in tests without downloading anything).
+
+`learnStyle` fetches the reference, finds its cuts (`detectCuts` — prefers
+`vintel scenes`, falls back to raw ffmpeg scene detection), measures each
+shot (`analyzeShots` — duration, mean motion, and ramp detection via
+`duplicateRate`, the tell for non-interpolated slow motion: halving playback
+on 30fps footage shows every frame twice, so a ramped shot's duplicate rate
+sits far above a normal one), and — unless `--no-describe` — classifies one
+frame per shot with the same `labelFrames` vision pass `watch` uses. The
+downloaded reference video is then **deleted**; only the derived numbers and
+one contact sheet are kept (`!opts.keepVideo && videoPath.startsWith(workDir)`
+guards against deleting a file the caller didn't actually download).
+
+`deriveStyle` (`src/learn/style.js`) turns those measurements into the style
+profile:
+
+- **`beatAlignment`** reports the fraction of cuts landing within a ±60ms
+  tolerance of the nearest beat, alongside **`chance`** — the probability a
+  *random* cut would land "on beat" by the same tolerance
+  (`2·tol/period`, ≈24% at 120 BPM) — and **`lift`**, the difference. The raw
+  percentage alone is misleading without the baseline it's being compared to.
+- **`fitArc`** correlates the shot-length sequence (inverted into "energy",
+  short shot = high energy) against each built-in arc's expected shape and
+  picks the best-correlated one. Below `ARC_CONFIDENCE` (0.4) the fit is not
+  meaningfully better than noise — measured on a known-rollercoaster
+  reference it picked "build" at 0.185, a label wearing noise's clothes — so
+  the function reports `confident: false` and falls back to the neutral
+  `steady` arc rather than asserting a shape it did not detect.
+
+`styleToPlanOpts` maps a loaded style onto `planEdit`'s own option shape
+(`arc`, `minShotBeats`, `grade`; `rampCount` resolves separately via
+`resolveRampCount` once the play count is known, since the style stores a
+*fraction* but the planner wants a *count*). **An explicit CLI flag always
+wins** over the style — `styleToPlanOpts`'s `take()` helper checks
+`explicit[key] != null` before falling back to the style's value — and the
+returned `provenance` records where each resolved value came from
+(`"flag"` or `"style"`) so `cli.js` can print it:
+`style "roundtrip" → arc:flag minShotBeats:style rampCount:style`. A style
+silently overriding a typed flag would be the same class of problem as
+reporting a number nobody measured.
+
+**Known limitation:** shot-boundary detection (`detectCuts`) misses cuts
+between visually similar shots. A round-trip on the project's own 9-shot
+reference reel recovered 7 of 9 shots.
+
+## Apple Music tempo/drop (`src/applemusic.js`)
+
+Apple Music subscription files are DRM-protected; ffmpeg cannot decode them
+and this module makes no attempt to circumvent that. It instead pulls the two
+numbers a hype edit needs from sources that are legitimately reachable:
+
+- **Tempo** — `searchTracks` hits the public iTunes Search API
+  (`itunes.apple.com/search`), which returns a DRM-free 30-second AAC preview
+  for almost every catalog track. `tempoFromPreview` downloads that preview
+  and runs it through `music.js`'s existing onset/tempo estimator — no new
+  tempo-detection code, just a new audio source for the one that already
+  exists.
+- **Drop** — `nowPlaying()` reads the Music app's currently-playing track and
+  playhead position via AppleScript (`osascript`, macOS only; error `-1728`
+  — "can't get current track" — is treated as the expected "nothing is
+  playing" state, not a failure). The workflow is: cue the real track in
+  Music, scrub to the drop, then run the command that calls `nowPlaying()`.
+
+Two honesty behaviours in `tempoFromPreview`:
+
+- **Octave sanity check.** A 30-second excerpt with a busy hi-hat pattern
+  commonly reads at double the true tempo — measured 198.8 BPM on a track
+  that is really about half that. Any BPM above 175 or below 70 triggers a
+  warning naming the halved/doubled alternative and pointing at `--bpm` to
+  override, because a doubled tempo halves every shot in the edit and looks
+  like a pacing bug later rather than a tempo bug now.
+- **The preview's own `drop` is discarded.** `analyzeMusic` still detects a
+  bass-drop timestamp inside the 30s preview, but that timestamp is relative
+  to a ~30s excerpt from the *middle* of the song and corresponds to nothing
+  in the full track's timeline. BPM is kept (produced music holds a fixed
+  tempo grid across the whole track, so a 30s sample is representative); drop
+  must come from `--drop` or `nowPlaying()` instead.
+
+`cli.js`'s `--apple-music` is mutually exclusive with `--music` and `--bpm`
+(exactly one tempo source), and — like `--bpm` — produces a synthetic beat
+grid with no underlying audio file, so the render has nothing to mix and
+exports a silent master. That pairs with `--no-music-bed`: cut every shot to
+the resolved tempo/drop, then add the actual Apple Music track back inside
+TikTok/Reels, where the DRM restriction doesn't apply.
 
 ## Reuses the VZT stack
 

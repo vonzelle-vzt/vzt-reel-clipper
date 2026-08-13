@@ -7,6 +7,54 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **`reelclip watch <video|url>` — actually watch the footage.** Samples
+  frames and hands their PATHS to `claude -p` (`src/vision.js`), which
+  `Read`s them and returns a closed-enum label per frame (`action | broll |
+  celebration | crowd | unclear`), fused with independently measured motion,
+  cuts and audio into one timeline (`src/watch.js`). The mechanism is ported
+  from `vzt-reel-studio`: a frozen invocation prefix so separate processes
+  share the one-hour prompt cache, the prompt over stdin (never argv), ~20
+  frames per batched call, a `--json-schema` closed enum so the answer can be
+  counted rather than parsed from prose, and bulk labelling on `haiku`. A
+  512px frame is ~197 vision tokens, so `--density normal` (1 fps) over a
+  4-minute video is ~47k tokens and a 64s clip at `--density skim` (0.5 fps)
+  is ~6k. `--no-describe` skips the vision pass for zero-token
+  measurement-only output. Outputs `watch.json` (the fused timeline), a
+  contact sheet, a label mix, and the ranges where live action was found.
+  Measured on real 7-on-7 game film: 25% action / 69% b-roll, versus 13%
+  action on a warm-up file from the same session — the discrimination the
+  module exists to make. Honest limits: sampling means an event entirely
+  between two frames is missed (raise `--density`), and audio is analysed
+  and transcribed, not heard.
+- **`reelclip learn <url|file> --name <style>` + `--style <name>` +
+  `reelclip styles`.** Reverse-engineers an edit's grammar into
+  `src/styles/<name>.json`: BPM, % of cuts on-beat reported against a
+  **chance baseline** (not the raw number alone — a random cut lands "on
+  beat" ~24% of the time with a ±60ms window at 120 BPM), shot-length
+  percentiles in seconds and beats, best-fit pacing arc, ramp fraction,
+  action %, and grade saturation. The downloaded reference video is
+  **deleted** after measuring; only the numbers and one contact sheet are
+  kept. `--style` maps onto the same options `planEdit` accepts (`arc`,
+  `minShotBeats`, `rampCount`, `grade`) — an explicit CLI flag always beats
+  the style, and the run prints provenance for each value, e.g. `style
+  "roundtrip" → arc:flag minShotBeats:style rampCount:style`. When the arc
+  correlation is below 0.4 the tool reports "no clear shape" and falls back
+  to `steady` instead of asserting a shape it did not really detect. Known
+  limitation: shot-boundary detection misses cuts between visually similar
+  shots — a round-trip on the project's own 9-shot reel recovered 7 of 9.
+- **Apple Music tempo/drop** (`src/applemusic.js`): `reelclip music search`,
+  `reelclip music now`, and `--apple-music <query>` / `--drop-from-music` for
+  `--mode hype`. DRM is never circumvented — tempo comes from the public
+  iTunes Search API's DRM-free 30-second preview, fed through `music.js`'s
+  existing tempo estimator; the drop comes from the Music app's own player
+  position via AppleScript (scrub to the drop, then run it). A 30s excerpt
+  commonly reads at double tempo (measured 198.8 BPM on a track that's about
+  half that), so anything outside ~70-175 BPM warns and suggests `--bpm` to
+  override. The preview's own internal "drop" is a mid-track excerpt and is
+  deliberately discarded — meaningless for the full song's timeline.
+  `--apple-music` conflicts with `--music` and `--bpm`; like `--bpm` it
+  produces a silent master (nothing to mix), pairing with `--no-music-bed`
+  for the add-the-sound-in-app workflow.
 - **`motion` reframe backend (`src/detect/motion.js`), now the default for
   `--reframe-backend`** (was `onnx`). The `onnx` backend detects PEOPLE, which
   is the wrong subject for wide team-sport film: a 7-on-7 tape shot from the
