@@ -5,3 +5,12 @@ out/
 .work/
 .DS_Store
 assets/_*.html
+
+# Generated analysis artefacts.
+# Contact sheets contain frames of the footage that was analysed — youth
+# athletes in game film, or third-party video for a learned reference. Neither
+# belongs in a public repo, so sheets are never committed; style JSON is only
+# numbers and is safe to share.
+watch/
+.learn/
+src/styles/*.jpg

@@ -6,6 +6,7 @@ import { exec, log, FFMPEG, FFPROBE } from "./util.js";
 import { loudnessCurve } from "./sports.js";
 import { createOnnxDetector } from "./detect/onnx.js";
 import { createVintelDetector } from "./detect/vintel.js";
+import { createMotionDetector } from "./detect/motion.js";
 
 /**
  * Smart reframe — subject-tracking pan & scan for `--fit smart`.
@@ -16,7 +17,7 @@ import { createVintelDetector } from "./detect/vintel.js";
  *
  * This module is pure planning: it produces a *camera path* (crop-left-edge x
  * over time) as data; `render.js` drives ffmpeg's `crop` via `sendcmd`. The
- * detector is pluggable (onnx local / vintel cloud / mock) so the tracker,
+ * detector is pluggable (motion local / onnx local / vintel cloud / mock) so the tracker,
  * smoother and framing logic stay backend-agnostic.
  *
  * Quality behaviours:
@@ -61,17 +62,32 @@ async function sourceDims(source) {
   return { w, h };
 }
 
-// The 9:16 window we slide across the source: full height, AR-matched width.
-// Returns null when the source isn't landscape enough to gain from panning.
-function cropWindow(geom) {
+/**
+ * The 9:16 window we slide across the source.
+ *
+ * `zoom` = 1 takes the full source height, which is right for a subject that
+ * fills the frame. It is wrong for sport shot from the stands: the players are
+ * small and far away, the bottom of the frame is the backs of the sideline, and
+ * a full-height crop keeps all of it. The action then barely moves on screen,
+ * which reads as the picture pausing even though every frame is unique.
+ *
+ * `zoom` > 1 takes a shorter window and scales it up, so the play fills more of
+ * the vertical frame. `yFrac` places that window vertically — the action band
+ * usually sits above centre, with the near sideline in the lower third.
+ *
+ * Returns null when the source isn't landscape enough to gain from panning.
+ */
+function cropWindow(geom, { zoom = 1, yFrac = 0.5 } = {}) {
   const ar = geom.w / geom.h;
   if (ar <= TARGET_AR + 1e-3) return null;
-  let cropW = Math.round(geom.h * TARGET_AR);
-  let cropH = geom.h;
+  const z = Math.max(1, Math.min(2.5, zoom));
+  let cropH = Math.round(geom.h / z);
+  let cropW = Math.round(cropH * TARGET_AR);
   if (cropW < 16 || cropW >= geom.w) return null;
   if (cropW % 2) cropW += 1; // libx264/yuv420p needs even dims
   if (cropH % 2) cropH -= 1;
-  return { cropW, cropH };
+  const cropY = Math.max(0, Math.min(geom.h - cropH, Math.round(geom.h * yFrac - cropH / 2)));
+  return { cropW, cropH, cropY: cropY % 2 ? cropY - 1 : cropY };
 }
 
 // --------------------------------------------------------------- sampling
@@ -129,6 +145,7 @@ function builtinMockDetector(frames, ctx) {
 // unavailable backend throws inside detect() (caught → center cover), not here.
 function resolveBackend(name, opts = {}) {
   if (name === "mock") return builtinMockDetector;
+  if (name === "motion") return createMotionDetector({ noiseFloor: opts.noiseFloor });
   if (name === "onnx") return createOnnxDetector({ modelPath: opts.modelPath, confThres: opts.confThres });
   if (name === "vintel") return createVintelDetector({ prompt: opts.prompt });
   if (name === "python") {
@@ -136,7 +153,7 @@ function resolveBackend(name, opts = {}) {
       throw new Error("reframe backend 'python' not wired yet — use onnx (local) or vintel (cloud)");
     };
   }
-  throw new Error(`unknown reframe backend '${name}' (use onnx|vintel|mock|python)`);
+  throw new Error(`unknown reframe backend '${name}' (use motion|onnx|vintel|mock)`);
 }
 
 function normalizeBoxes(detected, n) {
@@ -561,7 +578,7 @@ function cacheKey(source, clip, o) {
   }
   return createHash("sha1")
     .update(
-      [source, stat, clip.start, clip.end, o.fps, o.backend, o.smooth, o.deadzone, o.modelPath || "", o.confThres ?? "", o.audioHold ? 1 : 0, o.activeSpeaker ? 1 : 0, o.letterboxFit || "", VERSION].join("|"),
+      [source, stat, clip.start, clip.end, o.fps, o.backend, o.smooth, o.deadzone, o.modelPath || "", o.confThres ?? "", o.audioHold ? 1 : 0, o.activeSpeaker ? 1 : 0, o.letterboxFit || "", o.zoom ?? 1, o.yFrac ?? 0.5, VERSION].join("|"),
     )
     .digest("hex")
     .slice(0, 16);
@@ -605,14 +622,16 @@ export async function planReframe(source, clip, opts = {}) {
     return null;
   }
 
-  const crop = cropWindow(geom);
+  const crop = cropWindow(geom, { zoom: opts.zoom ?? 1, yFrac: opts.yFrac ?? 0.5 });
   if (!crop) {
     log.warn(`smart reframe: source ${geom.w}x${geom.h} is not landscape enough to pan — using center crop`);
     return null;
   }
 
   const cachePath = workDir
-    ? join(workDir, `reframe-${cacheKey(source, clip, { fps, backend, smooth, deadzone, modelPath: opts.modelPath, confThres: opts.confThres, audioHold, activeSpeaker, letterboxFit })}.json`)
+    // zoom/yFrac MUST be in the key: they change the crop geometry, so omitting
+    // them silently returns a plan framed for a different zoom.
+    ? join(workDir, `reframe-${cacheKey(source, clip, { fps, backend, smooth, deadzone, modelPath: opts.modelPath, confThres: opts.confThres, audioHold, activeSpeaker, letterboxFit, zoom: opts.zoom ?? 1, yFrac: opts.yFrac ?? 0.5 })}.json`)
     : null;
   if (cachePath && existsSync(cachePath)) {
     try {
@@ -658,6 +677,7 @@ export async function planReframe(source, clip, opts = {}) {
             mode: "active-speaker",
             cropW: crop.cropW,
             cropH: crop.cropH,
+            cropY: crop.cropY,
             sourceW: geom.w,
             sourceH: geom.h,
             keyframes: asPath,
@@ -683,6 +703,7 @@ export async function planReframe(source, clip, opts = {}) {
         keyframes: [],
         cropW: crop.cropW,
         cropH: crop.cropH,
+        cropY: crop.cropY,
         sourceW: geom.w,
         sourceH: geom.h,
       };
@@ -712,6 +733,7 @@ export async function planReframe(source, clip, opts = {}) {
       fps,
       cropW: crop.cropW,
       cropH: crop.cropH,
+      cropY: crop.cropY,
       sourceW: geom.w,
       sourceH: geom.h,
       keyframes,

@@ -17,13 +17,14 @@ function escapeText(t) {
  * Group a flat word list into short on-screen phrases.
  * Breaks on long pauses, max word count, or max character length.
  */
-function chunkPhrases(words, { maxWords = 4, maxChars = 22, pauseGap = 0.6 } = {}) {
+function chunkPhrases(words, { maxWords = 4, maxChars = 22, pauseGap = 0.6, uppercase = false } = {}) {
   const phrases = [];
   let cur = [];
   let curChars = 0;
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    const text = escapeText(w.text);
+    let text = escapeText(w.text);
+    if (uppercase) text = text.toUpperCase();
     if (!text) continue;
     const wordObj = { ...w, text };
     const wouldChars = curChars + text.length + 1;
@@ -46,11 +47,32 @@ function chunkPhrases(words, { maxWords = 4, maxChars = 22, pauseGap = 0.6 } = {
  * `words` carry start/end in SECONDS relative to the clip start (clip begins at 0).
  * Produces one Dialogue per word so the active word is highlighted karaoke-style.
  */
+/**
+ * Caption presets.
+ *
+ * `classic` is the original look and stays the default so existing speech-mode
+ * output is unchanged. `punch` is the short-form style that actually reads on a
+ * phone: heavy, upper-case, tighter phrases, and lifted clear of the platform
+ * chrome — TikTok and Reels cover roughly the bottom 15% of the frame with the
+ * caption/CTA rail, so a lower-third that looks fine in a player is partly
+ * hidden in the feed.
+ */
+export const CAPTION_STYLES = {
+  classic: { fontSize: 96, marginV: 320, uppercase: false, maxWords: 4, maxChars: 22, outline: 6 },
+  punch: { fontSize: 108, marginV: 470, uppercase: true, maxWords: 3, maxChars: 16, outline: 8 },
+};
+
 export function buildAss(words, opts = {}) {
+  const preset = CAPTION_STYLES[opts.style] || CAPTION_STYLES.classic;
   const fontName = opts.font || "Arial";
-  const fontSize = opts.fontSize || 96;
-  const marginV = opts.marginV || 320; // distance from bottom — sits in lower third
-  const phrases = chunkPhrases(words, opts);
+  const fontSize = opts.fontSize || preset.fontSize;
+  const marginV = opts.marginV || preset.marginV; // distance from bottom
+  const phrases = chunkPhrases(words, {
+    maxWords: opts.maxWords ?? preset.maxWords,
+    maxChars: opts.maxChars ?? preset.maxChars,
+    pauseGap: opts.pauseGap,
+    uppercase: opts.uppercase ?? preset.uppercase,
+  });
 
   // Flatten to a global word list, each word remembering its phrase + index,
   // so every instant maps to exactly one word (no overlapping Dialogue events).
@@ -82,7 +104,7 @@ export function buildAss(words, opts = {}) {
     events.push(`Dialogue: 0,${fmtClock(start)},${fmtClock(end)},Main,,0,0,,${line}`);
   }
 
-  return wrapAss({ fontName, fontSize, marginV, alignment: 2, events });
+  return wrapAss({ fontName, fontSize, marginV, alignment: 2, events, outline: opts.outline ?? preset.outline });
 }
 
 /**
@@ -100,7 +122,7 @@ export function buildTitleAss(title, durationSec, opts = {}) {
   return wrapAss({ fontName, fontSize, marginV: opts.marginV || 140, alignment: 8, events });
 }
 
-function wrapAss({ fontName, fontSize, marginV, alignment, events }) {
+function wrapAss({ fontName, fontSize, marginV, alignment, events, outline = 6 }) {
   return `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${W}
@@ -110,7 +132,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Main,${fontName},${fontSize},${COL_BASE},${COL_BASE},${COL_OUTLINE},&H64000000,-1,0,0,0,100,100,0,0,1,6,3,${alignment},80,80,${marginV},1
+Style: Main,${fontName},${fontSize},${COL_BASE},${COL_BASE},${COL_OUTLINE},&H64000000,-1,0,0,0,100,100,0,0,1,${outline},3,${alignment},80,80,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, Effect, Text
