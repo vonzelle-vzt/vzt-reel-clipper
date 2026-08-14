@@ -17,11 +17,12 @@ import { mapEntitiesToFrames } from "../src/detect/vintel.js";
 import { exec, ffprobeDuration, FFMPEG, FFPROBE } from "../src/util.js";
 import { analyzeMusic, snapToBeat, barSeconds } from "../src/music.js";
 import { combine, looksDeadBall, percentile, suppress, scorePlays } from "../src/score.js";
-import { planEdit, solveRamp } from "../src/plan.js";
+import { planEdit, solveRamp, pickNextPlay } from "../src/plan.js";
 import { renderReel, exportCover, transitionSpec } from "../src/composite.js";
 import { motionWindow } from "../src/detect/motion.js";
 import { labelFrames, labelMix, estimateTokens } from "../src/vision.js";
 import { summarize, actionSpans, resolveDensity } from "../src/watch.js";
+import { classifyPlayDescription, qualityFromLabels, pickHypeClips } from "../src/quality.js";
 import { Command } from "commander";
 import { deriveStyle, beatAlignment, fitArc, styleToPlanOpts, resolveRampCount } from "../src/learn/style.js";
 
@@ -548,6 +549,28 @@ await exec(FFMPEG, [
     ok("planEdit: the impact lands on a beat, action shots stay readable");
   }
 
+  // MATCH CUT ON MOVEMENT. Editors rate this above every preset: matching the
+  // direction of travel makes a plain cut disappear, because the eye is already
+  // moving that way. A different angle travelling the SAME direction is the
+  // ideal next shot, and must beat a same-angle shot travelling the other way
+  // even when the latter is ranked higher.
+  {
+    const cands = [
+      { title: "same angle, opposite dir", angle: "A", motionDir: -0.05 },
+      { title: "diff angle, SAME dir", angle: "B", motionDir: 0.05 },
+      { title: "diff angle, opposite dir", angle: "B", motionDir: -0.05 },
+    ];
+    assert.equal(pickNextPlay(cands, { lastAngle: "A", lastDir: 0.05 }), 1,
+      "movement continuity wins, angle variety breaks the tie");
+    assert.equal(pickNextPlay(cands, {}), 0, "with no history, take the best-ranked play");
+    // Static footage has no direction worth matching — score order must stand,
+    // or noise in a near-zero measurement would reorder the whole reel.
+    const still = [{ angle: "B", motionDir: 0.001 }, { angle: "B", motionDir: 0.002 }];
+    assert.equal(pickNextPlay(still, { lastAngle: "A", lastDir: 0.0005 }), 0,
+      "no direction to match → score ranking is preserved");
+    ok("pickNextPlay: match-cuts on movement, keeps ranking when nothing moves");
+  }
+
   // Whips pair shots that travel the SAME way; anything else cuts hard.
   const same = planEdit({ music, plays: mk([0.05, 0.06, 0.05, 0.07]), broll: [], outro: [], sport: "football", opts: { maxDuration: 30 } });
   assert.ok(same.shots.some((s) => s.transition === "whip"), "matched directions produce a whip");
@@ -778,6 +801,62 @@ await exec(FFMPEG, [
   assert.equal(resolveRampCount(s, 10, undefined), 5, "ramp fraction becomes a count");
   assert.equal(resolveRampCount(s, 10, 2), 2, "an explicit ramp count wins");
   ok("styleToPlanOpts: flags beat styles, provenance is recorded");
+
+  // ---------------------------------------------------------------- quality
+  //
+  // The regression these guard is the one that shipped: a window scored highly
+  // because the whole frame moved (a camera pan) and went into the cut ahead of
+  // a real play. Score alone can never catch that.
+
+  assert.equal(classifyPlayDescription("Player drives toward the basket under pressure"), "action");
+  assert.equal(classifyPlayDescription("Teams engaged in live play, players spread across court"), "scene");
+  assert.equal(classifyPlayDescription("Athletes warming up before the game"), "no-action");
+  assert.equal(classifyPlayDescription("camera pans across an empty building"), "no-action");
+  // A play whose description merely mentions a drill is still a play.
+  assert.equal(classifyPlayDescription("Receiver catches the ball on a drill route"), "action");
+  ok("classifyPlayDescription: an explicit no-action assertion outranks an action verb");
+
+  const L = (t, label) => ({ t, label });
+  assert.equal(
+    qualityFromLabels([L(1, "action"), L(2, "action"), L(3, "broll")], 0, 4),
+    "action",
+    "mostly action is a play",
+  );
+  assert.equal(
+    qualityFromLabels([L(1, "action"), L(2, "broll"), L(3, "broll")], 0, 4),
+    "scene",
+    "one action frame inside milling is not a play",
+  );
+  assert.equal(
+    qualityFromLabels([L(1, "crowd"), L(2, "crowd")], 0, 4),
+    "no-action",
+    "nothing but sideline is an assertion that no play is here",
+  );
+  // Unclear frames must not demote a window for the sampler's benefit.
+  assert.equal(qualityFromLabels([L(1, "action"), L(2, "unclear")], 0, 4), "action");
+  assert.equal(qualityFromLabels([], 0, 4), null, "no coverage means no opinion");
+  ok("qualityFromLabels: measured from frames, unclear excluded not counted against");
+
+  // The shipped defect, as data: a scenery pan outscores a real play.
+  const pan = { src: "a.mp4", srcStart: 43, srcEnd: 46, score: 0.92, description: "camera pans across an empty building" };
+  const play1 = { src: "a.mp4", srcStart: 65, srcEnd: 68, score: 0.40, description: "Player sprinting through the drill" };
+  const play2 = { src: "a.mp4", srcStart: 52, srcEnd: 55, score: 0.38, description: "Receiver catches the ball" };
+  const play3 = { src: "a.mp4", srcStart: 36, srcEnd: 39, score: 0.36, description: "Defender breaks free upfield" };
+  const picked = pickHypeClips([pan, play1, play2, play3]).picked;
+  assert.ok(!picked.includes(pan), "the highest-SCORING window is excluded because it is not a play");
+  assert.equal(picked.length, 3, "the three real plays survive");
+  assert.equal(picked[0], play1, "and the reel opens on the best of them");
+
+  // Never the same moment twice — the bug that put shot 1 back in as the outro.
+  const dup = { src: "a.mp4", srcStart: 65.5, srcEnd: 68.5, score: 0.99, description: "Player sprinting" };
+  const withDup = pickHypeClips([play1, dup, play2, play3]).picked;
+  assert.equal(withDup.length, 3, "an overlapping window is dropped even when it scores highest");
+
+  // A short reel beats a padded one: with the floor met, do not reach down a tier.
+  const scene = { src: "a.mp4", srcStart: 10, srcEnd: 13, score: 0.99, description: "Players spread across the field" };
+  const noPad = pickHypeClips([play1, play2, play3, scene], { targetSeconds: 60 }).picked;
+  assert.ok(!noPad.includes(scene), "a scene is not used to pad toward the runtime target");
+  ok("pickHypeClips: quality outranks score, no repeats, short beats padded");
 }
 
 console.log(`\n\x1b[32m\x1b[1m${passed} tests passed\x1b[0m`);

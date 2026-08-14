@@ -48,9 +48,19 @@ export function createSfxLibrary(sfxDir) {
   }
 
   return {
-    resolve(category, variantIndex = 0) {
+    /**
+     * `fallbacks` lets a cue ask for a more specific sample and degrade to a
+     * general one: a hit-to-slow wants an impact with a long TAIL that lingers
+     * through the slow section, but a library with only `impact/` should still
+     * produce a hit rather than silence.
+     */
+    resolve(category, variantIndex = 0, fallbacks = []) {
       if (!category || !existsSync(sfxDir)) return null;
-      const files = filesFor(category);
+      let files = filesFor(category);
+      for (const alt of fallbacks) {
+        if (files.length) break;
+        files = filesFor(alt);
+      }
       if (!files.length) return null;
       const idx = ((variantIndex % files.length) + files.length) % files.length;
       return files[idx];

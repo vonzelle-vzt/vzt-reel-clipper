@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { exec, log, FFMPEG, FFPROBE, ffprobeDuration } from "./util.js";
-import { buildFitFilter } from "./render.js";
+import { buildFitFilter, aspectSize } from "./render.js";
 import { gradeFilter } from "./grade.js";
 import { createSfxLibrary } from "./sfx.js";
 
@@ -40,6 +40,7 @@ const FPS = 30;
 const HARD_D = 1 / FPS; // one frame: a "cut" that keeps the xfade maths uniform
 const XFADE_D = 0.3;
 const WHIP_D = 0.15; // fast enough to read as a camera whip, not a dissolve
+const FLASH_D = 0.10; // a blink, not a dissolve — long enough is already too long
 
 /**
  * Filter that produces the slow-motion section.
@@ -75,6 +76,11 @@ export function transitionSpec(shot) {
   if (shot?.transition === "whip") {
     return { name: shot.whipDir < 0 ? "smoothleft" : "smoothright", d: WHIP_D };
   }
+  // FLASH CUT. Named repeatedly across editor breakdowns as the workhorse
+  // accent — a white blink on the cut, paired with a hit. ffmpeg's `fadewhite`
+  // is exactly this, and it must stay very short: at anything approaching a
+  // dissolve it reads as a mistake rather than an accent.
+  if (shot?.transition === "flash") return { name: "fadewhite", d: FLASH_D };
   return { name: "fade", d: HARD_D };
 }
 
@@ -110,10 +116,15 @@ async function hasAudio(path) {
 async function renderShot(shot, outDir, name, { padTail = 0, subdir = "", slowmo = "dup" } = {}) {
   const out = subdir ? `${subdir}/${name}.mp4` : `${name}.mp4`;
   const grade = gradeFilter(shot.grade, { lut: shot.lut });
-  const fit = buildFitFilter({ fit: shot.fit || "cover", reframe: shot.reframe, outDir, outName: name });
+  const fit = buildFitFilter({ fit: shot.fit || "cover", reframe: shot.reframe, outDir, outName: name, aspect: shot.aspect || "9:16" });
   // `fit` may be a multi-node graph (blur splits the stream), so everything
   // downstream is appended as its own chain inside filter_complex.
-  const post = [fit, grade, `fps=${FPS}`, "format=yuv420p"].filter(Boolean).join(",");
+  // Film grain, laid over everything at low strength. One editor puts a subtle
+  // texture layer on "every single video" at around 8% — it is never the thing
+  // you notice, but its absence is what makes digital footage look flat and
+  // clean in a way sports edits never are.
+  const grain = shot.grain ? `noise=alls=${Math.round(shot.grain * 20)}:allf=t+u` : null;
+  const post = [fit, grade, grain, `fps=${FPS}`, "format=yuv420p"].filter(Boolean).join(",");
 
   const args = ["-y"];
   let filter;
@@ -220,7 +231,7 @@ export async function renderReel(edl, outDir, opts = {}) {
   const sfxVol = opts.sfxVolume ?? 0.55;
 
   // Any non-hard transition forces the xfade chain (and its tail padding).
-  const anyBlend = edl.shots.some((s, i) => i > 0 && (s.transition === "xfade" || s.transition === "whip"));
+  const anyBlend = edl.shots.some((s, i) => i > 0 && s.transition !== "hard");
 
   // Per-shot intermediates go under .work/ so the output directory holds only
   // what the user actually wants — the reel, the cover and the EDL.
@@ -285,7 +296,16 @@ export async function renderReel(edl, outDir, opts = {}) {
   const lib = opts.sfxDir ? createSfxLibrary(opts.sfxDir) : null;
   const cues = lib
     ? (edl.sfx || [])
-        .map((c, i) => ({ ...c, path: lib.resolve(c.category, c.variant ?? i) }))
+        // A hit-to-slow asks for `impact-tail` first — an impact whose decay
+        // rings through the slow section — and falls back to a plain impact.
+        .map((c, i) => ({
+          ...c,
+          path: lib.resolve(
+            c.tail ? "impact-tail" : c.category,
+            c.variant ?? i,
+            c.tail ? ["impact"] : [],
+          ),
+        }))
         .filter((c) => c.path && c.at < baseDur)
     : [];
   const missing = (edl.sfx || []).length - cues.length;
@@ -299,6 +319,21 @@ export async function renderReel(edl, outDir, opts = {}) {
   mixLabels.push("[amb]");
 
   let idx = 1;
+
+  // Crowd ambience bed. A continuous room layer under the whole reel, distinct
+  // from the one-shot cues: it is the cheapest large improvement in a sports
+  // edit — barely noticeable on its own, but the reel sounds thin and airless
+  // without it. Looped to cover the picture and mixed well under the music.
+  const ambPath = lib?.resolve("ambience", 0);
+  if (ambPath) {
+    args.push("-stream_loop", "-1", "-i", ambPath);
+    aParts.push(
+      `[${idx}:a]atrim=0:${baseDur.toFixed(3)},asetpts=N/SR/TB,volume=${opts.ambienceBed ?? 0.22}[bed]`,
+    );
+    mixLabels.push("[bed]");
+    idx++;
+    log.info("crowd ambience bed laid under the reel");
+  }
   if (edl.music?.path) {
     args.push("-i", edl.music.path);
     // Trim the bed to the finished picture — the reel ends when the material

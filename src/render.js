@@ -29,7 +29,32 @@ import { buildAss, buildTitleAss } from "./ass.js";
  *
  * @returns {string} a filter chain usable as -vf on a single video input
  */
-export function buildFitFilter({ fit, reframe, outDir, outName }) {
+/**
+ * Output frame sizes.
+ *
+ * 9:16 is the default because that is what short-form feeds want, but it is
+ * the WRONG choice for wide field sports shot from the stands: a 16:9 source
+ * cropped to 9:16 keeps only ~32% of the frame width, so the play routinely
+ * happens outside the window. Letterboxing keeps everything and shrinks the
+ * players to specks instead. Neither is a cropping bug — the footage simply is
+ * not vertical footage, and the honest fix is to stop forcing it.
+ *
+ * 4:5 is the useful middle ground (keeps ~56% of the width, still a tall feed
+ * post); 16:9 keeps the whole field at full size for Hudl, YouTube and email.
+ */
+export const ASPECTS = {
+  "9:16": { w: 1080, h: 1920 },
+  "4:5": { w: 1080, h: 1350 },
+  "1:1": { w: 1080, h: 1080 },
+  "16:9": { w: 1920, h: 1080 },
+};
+
+export function aspectSize(name) {
+  return ASPECTS[name] || ASPECTS["9:16"];
+}
+
+export function buildFitFilter({ fit, reframe, outDir, outName, aspect = "9:16" }) {
+  const { w: OW, h: OH } = aspectSize(aspect);
   const useSmart =
     fit === "smart" && reframe && Array.isArray(reframe.keyframes) && reframe.keyframes.length > 0;
   if (useSmart) {
@@ -40,26 +65,26 @@ export function buildFitFilter({ fit, reframe, outDir, outName }) {
     return [
       `sendcmd=f=${cmdName}`,
       `crop=${rf.cropW}:${rf.cropH}:${rf.keyframes[0].x}:${rf.cropY ?? 0}`,
-      "scale=1080:1920",
+      `scale=${OW}:${OH}`,
       "setsar=1",
     ].join(",");
   }
   if (fit === "contain") {
     return [
-      "scale=1080:1920:force_original_aspect_ratio=decrease",
-      "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
+      `scale=${OW}:${OH}:force_original_aspect_ratio=decrease`,
+      `pad=${OW}:${OH}:(ow-iw)/2:(oh-ih)/2:color=black`,
       "setsar=1",
     ].join(",");
   }
   if (fit === "blur") {
     return [
       "split=2[bg][fg]",
-      "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=20[bgb]",
-      "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgs]",
+      `[bg]scale=${OW}:${OH}:force_original_aspect_ratio=increase,crop=${OW}:${OH},gblur=sigma=20[bgb]`,
+      `[fg]scale=${OW}:${OH}:force_original_aspect_ratio=decrease[fgs]`,
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1",
     ].join(";");
   }
-  return ["scale=1080:1920:force_original_aspect_ratio=increase", "crop=1080:1920", "setsar=1"].join(",");
+  return [`scale=${OW}:${OH}:force_original_aspect_ratio=increase`, `crop=${OW}:${OH}`, "setsar=1"].join(",");
 }
 
 export async function renderClip(source, clip, words, outDir, outName, opts = {}) {

@@ -61,6 +61,8 @@ export async function run(argv) {
     .option("--no-ramps", "hype: don't speed-ramp into the moment of impact")
     .option("--ramp-count <n>", "hype: how many plays get a speed ramp (default: ~35% of them)", (v) => parseInt(v, 10))
     .option("--ramp-speed <0..1>", "hype: slow-motion speed for ramps (higher = less slow, less judder)", (v) => parseFloat(v), 0.6)
+    .option("--aspect <ratio>", "output shape: 9:16 (feed) | 4:5 | 1:1 | 16:9 (keeps the whole field)", "9:16")
+    .option("--grain <0..1>", "hype: film grain strength (0 = off)", (v) => parseFloat(v), 0.35)
     .option("--slowmo <mode>", "hype: slow-motion quality: dup (fast) | blend | smooth (interpolated, ~40x slower)", "dup")
     .option("--no-sfx", "hype: don't mix sound effects")
     .option(
@@ -342,6 +344,7 @@ async function main(input, opts, command) {
         ramps: opts.ramps,
         rampCount: styleOpts.rampCount ?? opts.rampCount,
         rampSpeed: opts.rampSpeed,
+        grain: opts.grain,
         maxDuration: opts.duration,
         transitions: true,
       },
@@ -349,6 +352,7 @@ async function main(input, opts, command) {
     // Framing and LUT are render concerns the planner doesn't own.
     edl.shots.forEach((s) => {
       s.fit = opts.fit;
+      s.aspect = opts.aspect;
       s.lut = opts.lut || null;
     });
     // Per-shot smart reframe: plan a camera path for each shot so the 9:16

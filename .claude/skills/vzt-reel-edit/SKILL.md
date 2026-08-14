@@ -5,7 +5,23 @@ description: The sports-edit doctrine — how to cut game film into a hype reel 
 
 # Editing doctrine
 
-Four things separate a boring sports edit from one that gives people chills:
+## First: which of the two products is this?
+
+"Sports edit" is **two genres with different grammars**, and treating one like
+the other is why an edit feels wrong. Decide this before anything else.
+
+| | **Hype reel** | **Cinematic recap** |
+|---|---|---|
+| Length | 20–60s | 3–20 min |
+| Driven by | the music | the story |
+| Audio lead | track + SFX | **commentary + natural audio** |
+| Cut logic | **on the beat** | **on the action** |
+| Ends on | the climax | **a wide shot** |
+
+`--mode hype` builds the first. The recap is a separate discipline — its rules
+are in the second half of this file and in `docs/SPORTS-EDIT-DOCTRINE.md`.
+
+Four things separate a boring hype reel from one that gives people chills:
 **music, pacing, sound design, and creative decisions.** Everything below is
 downstream of those four. This applies to every sport — the vocabulary changes,
 the doctrine does not.
@@ -184,6 +200,60 @@ Three traps worth knowing, all found on real footage:
   loud-but-still tell, so nothing is rejected and sideline milling can be
   selected. Expect to raise `--sensitivity` on such footage, and say so rather
   than implying the selection was smarter than it was.
+
+---
+
+# The cinematic recap — a different grammar
+
+Longer, story-led, and **audio-first**. The test a working editor applies:
+
+> A listener should follow the whole story from the audio alone, without
+> watching the picture.
+
+## Audio carries it
+
+- Separate lanes for music, **commentary**, natural/camera audio, and SFX.
+- **Two reverb buses** — one moderate, one extreme. Their job is to let a word
+  ring when you cut into silence, usually the commentator's last word before a
+  key moment.
+- Duck with a **parametric EQ dipping the music's mids**, not by pulling the
+  fader. Dialogue cuts through and the music never audibly moves.
+
+## Cut on the action, not the beat
+
+This is the recap's equivalent of beat-syncing:
+
+- Cut **mid-movement** — the instant the runner is occluded, plants a foot, or
+  starts to fall. Never after the motion settles.
+- **Show an important action twice**, from two angles, to place emphasis on it.
+- Then run the reaction chain: *action → the player who did it → the player it
+  happened to → bench → crowd → score graphic.*
+- Let the ball hang in flight. Hold, pause, then pay it off.
+
+## Structure
+
+1. **Intro, 30–40s:** scene, arrivals, warm-ups, teams out, trophy, pregame.
+   Then straight into action — do not linger on pregame.
+2. **Establish the event within two seconds.** One editor match-cut the same
+   logo filmed all over the stadium, aligned with guides so the cuts are
+   seamless.
+3. **Body:** action–reaction chains, with score/time graphics — without them a
+   viewer loses track of the game state.
+4. **Climax:** set the stakes (an injury, a sack), then **cut to silence for a
+   long beat** before the decisive play. The silence *is* the tension.
+5. **Post-game:** emotional interview audio laid *under* the visuals — the
+   underdog line, the disbelief, the crying. This is where it lands.
+6. **End WIDE** (confetti, stadium), then fade to logo. Never end tight; a close
+   shot gives the viewer nothing to close on.
+
+## Plan before cutting
+
+Watch the footage first and write every big play with its timestamp, in order.
+Tick each as it goes in; cross out anything deliberately skipped. That is what
+makes the edit tell the *true* story — every score, not just the pretty moments.
+`reelclip watch` produces exactly this list.
+
+---
 
 ## Checklist before calling a reel done
 

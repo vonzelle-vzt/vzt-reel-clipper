@@ -1,4 +1,6 @@
 import { getProfile } from "./profiles.js";
+import { classifyPlay, playQualityRank } from "./quality.js";
+import { log } from "./util.js";
 
 /**
  * The edit plan — the editing doctrine expressed as data.
@@ -159,6 +161,42 @@ export function sustainedWindow(samples, dur) {
   return best;
 }
 
+
+/**
+ * Choose the next action shot, scoring movement continuity above angle variety.
+ *
+ * Matching the direction of travel is what makes a plain cut disappear — the
+ * viewer's eye is already moving that way, so the join reads as continuous
+ * motion rather than as an edit. Varying the angle keeps it from looking
+ * repetitive. The ideal next shot does BOTH: a different angle travelling the
+ * same way, which is why these are scored together instead of one short-
+ * circuiting the other.
+ *
+ * Ties fall back to the incoming order, which is score-ranked, so a weak match
+ * never beats a materially better play.
+ *
+ * @param {Array} plays        remaining candidates, best-first
+ * @param {{lastAngle:?string, lastDir:?number}} prev
+ * @returns {number} index into `plays`
+ */
+export function pickNextPlay(plays, { lastAngle = null, lastDir = null } = {}) {
+  if (!plays.length) return 0;
+  const MOVING = 0.015; // below this a shot has no direction worth matching
+  let best = 0;
+  let bestScore = -Infinity;
+  plays.forEach((p, i) => {
+    let score = 0;
+    const d = p.motionDir ?? 0;
+    if (lastDir != null && Math.abs(d) >= MOVING && Math.abs(lastDir) >= MOVING) {
+      score += Math.sign(d) === Math.sign(lastDir) ? 2 : -1;
+    }
+    if (p.angle != null && lastAngle != null) score += p.angle !== lastAngle ? 1 : -1;
+    score -= i * 0.05; // keep the score ranking as the tie-break
+    if (score > bestScore) { bestScore = score; best = i; }
+  });
+  return best;
+}
+
 /**
  * Build the edit plan.
  *
@@ -181,6 +219,8 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
   // deep pass needs the throw, the flight and the catch; a dunk does not.
   const actionMinBeats = opts.minShotBeats ?? profile.minShotBeats ?? ACTION_MIN_BEATS;
   const grade = opts.grade || "punch";
+  // A single subtle texture strength for the whole reel — 0 disables it.
+  const grain = opts.grain ?? 0.35;
   const useRamps = opts.ramps !== false;
   // How many plays get a speed ramp. Ramping EVERY action shot is what made the
   // reel feel like it kept pausing: a 0.5x section on 30fps source duplicates
@@ -200,11 +240,44 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
   // in, which is where a drop usually is anyway on edit-friendly tracks.
   const dropIdx = music.drop != null ? nearestBeatIndex(beats, music.drop) : Math.min(8, endIdx - 8);
 
-  const ranked = [...plays].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  // QUALITY OUTRANKS SCORE.
+  //
+  // `score` measures how interesting a window is, never whether a play happened,
+  // and on real footage those come apart. This line used to sort on score alone,
+  // which put a camera pan across an empty building into a shipped cut ahead of
+  // three real plays — the pan scored well precisely because the whole frame
+  // moved. See src/quality.js for the measurement.
+  const quality = new Map(plays.map((p) => [p, classifyPlay(p, opts.labels ?? null)]));
+  const hasPlay = plays.some((p) => quality.get(p) !== "no-action");
+  const ranked = plays
+    // Drop windows we looked at and saw no play in — unless that is all there
+    // is, in which case a thin reel beats no reel and the caller is warned.
+    .filter((p) => !hasPlay || quality.get(p) !== "no-action")
+    .sort((a, b) => {
+      const q = playQualityRank(quality.get(b)) - playQualityRank(quality.get(a));
+      if (q !== 0) return q;
+      const d = (b.score ?? 0) - (a.score ?? 0);
+      // Stable tiebreak: near-identical scores are common, and without this the
+      // same input can order differently between a dry run and the render.
+      return d !== 0 ? d : (a.start ?? 0) - (b.start ?? 0);
+    });
   if (!ranked.length) throw new Error("no plays to build a reel from");
+  if (!hasPlay) {
+    log.warn("every candidate window classified as no-action — the reel is built from the least-bad of them");
+  }
 
   const shots = [];
   const sfx = [];
+
+  /**
+   * Does the track already land a hit here?
+   *
+   * Downbeats are where the music itself punches, and layering our own impact
+   * on top of one muddies both. Editors make this call by ear; encoding it
+   * keeps the sound design intentional rather than mechanical.
+   */
+  const nearDownbeat = (t, tol = 0.07) =>
+    (music.downbeats || []).some((d) => Math.abs(d - t) <= tol);
   let bi = 0; // current beat index
 
   const push = (shot) => {
@@ -241,6 +314,7 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
           ramp: null,
           transition: i === 0 ? "hard" : "hard",
           grade,
+          grain,
           label: b.label || "intro",
         });
         if (transitions && i > 0) sfx.push({ category: "whoosh", at, variant: i });
@@ -329,6 +403,11 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
     const prev = shots[shots.length - 1];
     let transition = "hard";
     let whipDir = 0;
+    // FLASH CUT on the hook. The drop is the one moment in the reel that can
+    // carry an overt accent, and a white blink there is the classic tell. Used
+    // sparingly on purpose — flashing every cut is what makes an edit look
+    // like a preset pack rather than an edit.
+    if (transitions && isHook && shots.length) transition = "flash";
     const d = play.motionDir ?? 0;
     if (
       transitions && prev && prev.kind === "action" && !isHook &&
@@ -355,11 +434,33 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
       transition,
       whipDir,
       grade,
+      grain,
       label: play.title || "play",
       hook: isHook,
     });
     if (transitions) {
-      sfx.push({ category: "impact", at, variant: shots.length });
+      // The cut itself. Skipped when the music already lands a hit here — a
+      // working editor's note: an impact was deliberately left off a moment
+      // because "the hit from the music already lines up". Doubling up muddies
+      // both instead of reinforcing either.
+      if (!nearDownbeat(at)) sfx.push({ category: "impact", at, variant: shots.length });
+
+      // HIT-TO-SLOW. The impact that actually sells a ramp lands where the
+      // picture *slows*, not where the shot starts, and it wants a tail that
+      // lingers through the slow section. Straight from the breakdown: going
+      // fast and then slowing down feels empty without it, and "it makes a
+      // world of a difference" with it.
+      //
+      // The pre-ramp section plays at 1x, so the slow section's timeline offset
+      // is just `atSrc`.
+      if (ramp) {
+        sfx.push({
+          category: "impact",
+          at: +(at + ramp.atSrc).toFixed(3),
+          variant: shots.length + 1,
+          tail: true,
+        });
+      }
     }
     return shot;
   };
@@ -383,6 +484,7 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
   let bri = 0;
   let wantAction = true;
   let lastAngle = shots.length ? shots[shots.length - 1].angle : null;
+  let lastDir = shots.length ? (shots[shots.length - 1].motionDir ?? null) : null;
 
   // Drive the arc by progress through the MATERIAL, not through the music.
   // Mapping it to the beat timeline compresses the curve whenever there is less
@@ -414,12 +516,20 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
 
     let placed = null;
     if (wantAction && pi < remainingPlays.length) {
-      // Prefer a play whose angle differs from the previous shot's.
-      let idx = pi;
-      for (let k = pi; k < remainingPlays.length; k++) {
-        if (remainingPlays[k].angle == null || remainingPlays[k].angle !== lastAngle) { idx = k; break; }
-      }
-      const play = remainingPlays.splice(idx, 1)[0];
+      // MATCH CUT ON MOVEMENT — the highest-value ordering rule there is.
+      //
+      // Editors rate the match cut above every preset and overlay, and its
+      // strongest form is matching the DIRECTION of travel: left-to-right into
+      // left-to-right into left-to-right. The eye tracks continuously across
+      // the join and simply does not register the cut, which is why a plain
+      // cut can outperform a transition effect laid over a mismatched one.
+      //
+      // `motionDir` was already measured for whip pairing; here it also decides
+      // the ORDER. Angle still wants to vary — different angle, same direction
+      // is the ideal pairing, so both are scored rather than one overriding
+      // the other.
+      const pick = pickNextPlay(remainingPlays, { lastAngle, lastDir });
+      const play = remainingPlays.splice(pick, 1)[0];
       placed = placeAction(play, nBeats, bi);
     } else if (bri < brollPool.length) {
       const b = brollPool[bri++];
@@ -441,6 +551,7 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
           ramp: null,
           transition: inBreak && transitions ? "xfade" : "hard",
           grade,
+          grain,
           label: b.label || "broll",
         });
         if (transitions) sfx.push({ category: "whoosh", at, variant: shots.length });
@@ -451,6 +562,7 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
 
     if (!placed) break;
     lastAngle = placed.angle;
+    if (placed.motionDir != null) lastDir = placed.motionDir;
     bi += nBeats;
     bodyIndex++;
     wantAction = !wantAction;
@@ -487,6 +599,7 @@ export function planEdit({ music, plays, broll = [], outro = [], sport = "generi
         ramp: null,
         transition: transitions ? "xfade" : "hard",
         grade,
+        grain,
         label: close.label || "outro",
       });
     }
