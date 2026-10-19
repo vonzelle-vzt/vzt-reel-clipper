@@ -14,7 +14,7 @@ import { ffprobeDuration } from "./util.js";
  */
 
 // Parse ametadata `print` output: alternating `pts_time:` and `lavfi.r128.M=` lines.
-export function parseR128(text) {
+function parseR128(text) {
   const series = [];
   let t = null;
   for (const line of text.split(/\r?\n/)) {
@@ -61,7 +61,7 @@ export async function loudnessCurve(source, { start = 0, end } = {}) {
  * Read the loudness curve and return scored peak timestamps (loudest first).
  * @returns {Promise<Array<{t:number, score:number, M:number}>>}
  */
-export async function detectAudioPeaks(source, { minGap = 18, sensitivity = 1.0 } = {}) {
+async function detectAudioPeaks(source, { minGap = 18, sensitivity = 1.0 } = {}) {
   log.info("scanning audio energy (ebur128 loudness)…");
   // Write momentary-loudness metadata to a bare filename inside a temp cwd to
   // dodge Windows drive-letter escaping in the ffmpeg filtergraph.

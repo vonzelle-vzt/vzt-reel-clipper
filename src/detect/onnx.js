@@ -18,7 +18,7 @@ import { exec, FFMPEG } from "../util.js";
  * without the native runtime or a model.
  */
 
-export const NET = 640; // YOLOv8 default square input
+const NET = 640; // YOLOv8 default square input
 const PERSON_CLASS = 0; // COCO 'person'
 
 // Map source (w,h) onto a NET×NET square with aspect preserved (the transform
