@@ -44,6 +44,14 @@
     "ffmpeg-static": "^5.3.0",
     "kleur": "^4.1.5"
   },
+  "peerDependencies": {
+    "onnxruntime-node": "^1.30.0"
+  },
+  "peerDependenciesMeta": {
+    "onnxruntime-node": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": ">=20"
   }
