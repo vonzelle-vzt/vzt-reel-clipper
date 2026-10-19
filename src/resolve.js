@@ -4,7 +4,7 @@ import { exec, log } from "./util.js";
 
 const YT_RE = /(youtube\.com|youtu\.be)/i;
 
-export function isUrl(s) {
+function isUrl(s) {
   return /^https?:\/\//i.test(s);
 }
 
