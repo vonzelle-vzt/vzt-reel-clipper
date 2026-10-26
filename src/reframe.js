@@ -210,7 +210,7 @@ function buildTracks(segBoxes, geom) {
  * decide a clip can't be panned and should be letterboxed instead.
  * @returns {{centers:number[], widths:number[], segIds:number[], anySubject:boolean}}
  */
-export function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 0.5 } = {}) {
+function planTargets(frames, boxesByFrame, cuts, geom, { unionAreaFrac = 0.5 } = {}) {
   const segIds = segmentsFromCuts(frames, cuts);
   const centers = new Array(frames.length).fill(null);
   const widths = new Array(frames.length).fill(0);
@@ -342,7 +342,7 @@ function interpAt(ts, ys, t) {
  * keyframes. Densification happens PER scene segment, so the camera hard-steps
  * at a cut instead of smearing across it. Consecutive duplicate x are dropped.
  */
-export function buildKeyframes(cxPerFrame, frames, segIds, crop, geom, outFps = 15) {
+function buildKeyframes(cxPerFrame, frames, segIds, crop, geom, outFps = 15) {
   const half = crop.cropW / 2;
   const minX = 0;
   const maxX = Math.max(0, geom.w - crop.cropW);
