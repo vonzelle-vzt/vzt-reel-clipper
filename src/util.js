@@ -23,7 +23,7 @@ export const log = {
  * (e.g. "…/2026 Matrix Bootcamp/Day 1 - EMAS.mp4") gets split by the shell.
  * Non-shell calls pass args as an array and never need this.
  */
-export function quoteArg(arg) {
+function quoteArg(arg) {
   const s = String(arg);
   if (s === "") return '""';
   if (process.platform === "win32") {

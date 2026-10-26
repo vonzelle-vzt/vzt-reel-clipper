@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white" alt="node >= 20"></a>
+  <a href="#"><img src="https://img.shields.io/badge/node-%E2%89%A524-339933?logo=node.js&logoColor=white" alt="node >= 24"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e6b422" alt="MIT"></a>
   <a href="#"><img src="https://img.shields.io/badge/API%20cost-%240-e6b422" alt="$0 API cost"></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-win%20%7C%20mac%20%7C%20linux-555" alt="cross-platform"></a>
